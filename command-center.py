@@ -817,9 +817,19 @@ class CommandCenter(Adw.ApplicationWindow):
     # UI Construction
     # ============================================================
     def build_ui(self):
-        """Build the main window: sidebar + content area."""
+        """Build the main window: headerbar + sidebar + content area."""
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_content(outer)
+
+        # HeaderBar for window dragging (with sidebar title)
+        header = Adw.HeaderBar()
+        header.add_css_class("flat")
+        header.set_title_widget(Gtk.Label(label=""))
+        outer.append(header)
+
+        # Main area: sidebar + content
         main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        self.set_content(main_box)
+        outer.append(main_box)
 
         # Sidebar
         sidebar = self._build_sidebar()
@@ -1574,41 +1584,62 @@ class CommandCenter(Adw.ApplicationWindow):
         self._show_bench(all_results)
 
     def _show_bench(self, all_results):
-        text = "<span color='#7aa2f7' weight='bold'>CCD Benchmark Results</span>\n\n"
+        """Display benchmark results with clear comparison."""
+        # Calculate averages and find best
         best_ccd = None
         best_avg = 0
+        ccd_avgs = {}
+
         for ccd_id in sorted(all_results.keys()):
             results = all_results[ccd_id]
             if results:
                 avg = sum(results.values()) / len(results)
+                ccd_avgs[ccd_id] = avg
                 if avg > best_avg:
                     best_avg = avg
                     best_ccd = ccd_id
 
-        for ccd_id in sorted(all_results.keys()):
-            results = all_results[ccd_id]
-            if results:
-                avg = sum(results.values()) / len(results)
-                marker = ">> " if ccd_id == best_ccd else "   "
-                color = "#e0af68" if ccd_id == best_ccd else "#c0caf5"
-                bar = "\u2588" * int(avg / 50000) + "\u2591" * (20 - int(avg / 50000))
-                text += f"<span color='{color}'>{marker}CCD{ccd_id}: {bar} {avg:.0f} kB/s</span>\n"
+        if not ccd_avgs:
+            self.bench_label.set_markup(
+                "<span color='#f7768e' weight='bold'>No results — benchmark failed</span>")
+            return
+
+        # Build result text — show kB/s AND relative comparison
+        text = "<span color='#7aa2f7' weight='bold' size='14'>Benchmark Results</span>\n\n"
+
+        # Find max for bar scaling
+        max_avg = max(ccd_avgs.values()) if ccd_avgs else 1
+
+        for ccd_id in sorted(ccd_avgs.keys()):
+            avg = ccd_avgs[ccd_id]
+            is_best = ccd_id == best_ccd
+            color = "#e0af68" if is_best else "#c0caf5"
+            icon = "🏆" if is_best else "  "
+
+            # Bar: 20 chars, proportional to max
+            bar_len = int((avg / max_avg) * 20) if max_avg > 0 else 0
+            bar = "█" * bar_len + "░" * (20 - bar_len)
+
+            # Show as GB/s (more readable than kB/s)
+            gb_s = avg / 1000000
+            pct = (avg / max_avg) * 100 if max_avg > 0 else 0
+
+            text += f"<span color='{color}'>{icon} <b>CCD{ccd_id}</b>  {bar}  {gb_s:.2f} GB/s ({pct:.0f}%)</span>\n"
 
         if best_ccd is not None:
-            text += f"\n<span color='#e0af68' weight='bold'>>> CCD{best_ccd} is BEST - keep for gaming!</span>"
+            # Calculate how much faster
+            if len(ccd_avgs) > 1:
+                other_avg = [v for k, v in ccd_avgs.items() if k != best_ccd]
+                if other_avg:
+                    diff_pct = ((best_avg - other_avg[0]) / other_avg[0]) * 100
+                    text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is {diff_pct:.1f}% faster → keep for gaming!</span>"
+                else:
+                    text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is best → keep for gaming!</span>"
+            else:
+                text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is best → keep for gaming!</span>"
 
         self.bench_label.set_markup(text)
         self.best_ccd = best_ccd
-
-        # Update CCD cards on the Dashboard with BEST badge
-        for ccd_id, card in self.ccd_cards.items():
-            if ccd_id == best_ccd:
-                card.add_css_class("ccd-card-best")
-                card._badge.set_label("BEST")
-                card._badge.add_css_class("badge-best")
-            else:
-                card.remove_css_class("ccd-card-best")
-                card._badge.remove_css_class("badge-best")
 
 
 # ============================================================
