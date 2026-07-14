@@ -21,12 +21,14 @@ echo "📦 Installing system files (requires sudo)..."
 echo
 
 # 1. Helper script → /usr/local/bin
-sudo cp "$SCRIPT_DIR/gaming-ccd-helper" /usr/local/bin/gaming-ccd-helper
-sudo chmod +x /usr/local/bin/gaming-ccd-helper
+sudo install -m 755 -o root -g root "$SCRIPT_DIR/gaming-ccd-helper" /usr/local/bin/gaming-ccd-helper
 echo "  ✅ Helper installed → /usr/local/bin/gaming-ccd-helper"
 
 # 2. Polkit policy → /usr/share/polkit-1/actions/
-sudo cp "$SCRIPT_DIR/com.gaming.commandcenter.policy" /usr/share/polkit-1/actions/
+# Must be world-readable (0644) — plain `cp` would carry over the repo file's
+# permissions and polkit may then ignore the action.
+sudo install -m 644 -o root -g root "$SCRIPT_DIR/com.gaming.commandcenter.policy" \
+    /usr/share/polkit-1/actions/com.gaming.commandcenter.policy
 echo "  ✅ Polkit policy installed (no password for Game Mode)"
 
 # 3. App icon → system icons

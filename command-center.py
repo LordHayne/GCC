@@ -10,132 +10,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GLib, Gdk, GObject
 import subprocess, os, re, threading, time
 from system_scanner import scan_system
-
-# ============================================================
-# CPU Topology
-# ============================================================
-class CPUTopology:
-    def __init__(self):
-        self.ccds = {}
-        self.detect()
-
-    def detect(self):
-        self.ccds = {}
-        cache_ids = {}
-        for cpu in range(128):
-            path = f"/sys/devices/system/cpu/cpu{cpu}/cache/index3/id"
-            try:
-                with open(path) as f:
-                    cid = int(f.read().strip())
-                if cid not in cache_ids:
-                    cache_ids[cid] = []
-                cache_ids[cid].append(cpu)
-            except:
-                continue
-        sorted_ids = sorted(cache_ids.keys())
-        ccd_id = 0
-        prev_id = -2
-        for cid in sorted_ids:
-            if cid > prev_id + 1:
-                ccd_id += 1
-            if ccd_id not in self.ccds:
-                self.ccds[ccd_id] = []
-            self.ccds[ccd_id].extend(cache_ids[cid])
-            prev_id = cid
-        self.ccds = {k: sorted(v) for k, v in sorted(self.ccds.items())}
-
-    def get_ccd_cpus(self, ccd_id):
-        return self.ccds.get(ccd_id, [])
-
-    def get_all_ccd_ids(self):
-        return sorted(self.ccds.keys())
-
-    def ccd_count(self):
-        return len(self.ccds)
-
-    def is_cpu_online(self, cpu):
-        try:
-            with open(f"/sys/devices/system/cpu/cpu{cpu}/online") as f:
-                return f.read().strip() == "1"
-        except:
-            return True
-
-    def get_cpu_freq(self, cpu):
-        try:
-            with open(f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_cur_freq") as f:
-                return int(f.read().strip()) // 1000
-        except:
-            return 0
-
-    def get_governor(self):
-        try:
-            with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") as f:
-                return f.read().strip()
-        except:
-            return "?"
-
-    def get_temp(self):
-        try:
-            r = subprocess.run(["sensors"], capture_output=True, text=True, timeout=2)
-            for line in r.stdout.split("\n"):
-                if "Tctl:" in line:
-                    m = re.search(r'([+-]?[\d.]+)°C', line)
-                    if m: return float(m.group(1))
-        except:
-            pass
-        return 0.0
-
-    def get_game_mode(self):
-        """Check if CCD1 is parked by testing CPU6 directly.
-        Don't rely on self.ccds — offline CPUs disappear from topology."""
-        try:
-            with open("/sys/devices/system/cpu/cpu6/online") as f:
-                return f.read().strip() == "0"
-        except:
-            # CPU6 might not exist (non-2-CCD CPU) — check total CPU count
-            return False
-
-    def get_online_count(self):
-        """Count online CPU cores (SMT threads / 2 = physical cores).
-        Reads sysfs directly — don't rely on self.ccds which loses CCD1 when parked."""
-        threads = 0
-        for cpu in range(128):
-            online_path = f"/sys/devices/system/cpu/cpu{cpu}/online"
-            try:
-                with open(online_path) as f:
-                    if f.read().strip() == "1":
-                        threads += 1
-            except FileNotFoundError:
-                # CPU0 has no 'online' file but is always online
-                # Check if the CPU directory exists
-                if os.path.isdir(f"/sys/devices/system/cpu/cpu{cpu}"):
-                    threads += 1
-                else:
-                    break  # No more CPUs
-        # SMT: 2 threads per core → physical cores = threads / 2
-        smt = True
-        try:
-            with open("/sys/devices/system/cpu/smt/control") as f:
-                smt = f.read().strip() != "off"
-        except:
-            pass
-        if smt and threads > 1:
-            return threads // 2
-        return threads
-
-    def get_total_count(self):
-        """Total CPU count (including offline)"""
-        return subprocess.run(["nproc", "--all"], capture_output=True, text=True).stdout.strip()
-
-    def get_cpu_name(self):
-        try:
-            with open("/proc/cpuinfo") as f:
-                for line in f:
-                    if "model name" in line:
-                        return line.split(":", 1)[1].strip()
-        except:
-            pass
-        return "Unknown CPU"
+from topology import CPUTopology, format_cpu_list, save_config
 
 
 # ============================================================
@@ -204,29 +79,47 @@ class GPUInfo:
 # Controllers
 # ============================================================
 class CCDController:
+    """Drives the root helper. CPU numbers always come from CPUTopology —
+    nothing here assumes a core layout."""
+
     HELPER = "/usr/local/bin/gaming-ccd-helper"
 
     @staticmethod
-    def park():
+    def _run(args, expect, timeout=60):
+        """Returns (ok, message). The helper prints DONE_* on success and
+        'ERR: reason' on stderr, so a cancelled pkexec dialog reads as failure."""
         try:
-            r = subprocess.run(["pkexec", CCDController.HELPER, "on"],
-                              capture_output=True, text=True, timeout=60)
-            return "DONE_ON" in (r.stdout or "")
+            r = subprocess.run(["pkexec", CCDController.HELPER] + args,
+                               capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
-            return False
-        except Exception:
-            return False
+            return False, "Helper timed out"
+        except OSError as e:
+            return False, f"Could not run helper: {e}"
+        if expect in (r.stdout or ""):
+            return True, ""
+        err = (r.stderr or "").strip().splitlines()
+        reason = err[-1].replace("ERR: ", "") if err else ""
+        if r.returncode == 126:
+            reason = "Authorisation denied"
+        return False, reason or f"Helper failed (exit {r.returncode})"
 
     @staticmethod
-    def unpark():
-        try:
-            r = subprocess.run(["pkexec", CCDController.HELPER, "off"],
-                              capture_output=True, text=True, timeout=60)
-            return "DONE_OFF" in (r.stdout or "")
-        except subprocess.TimeoutExpired:
-            return False
-        except Exception:
-            return False
+    def park(cpus):
+        if not cpus:
+            return False, "Nothing to park"
+        return CCDController._run(
+            ["park", ",".join(str(c) for c in sorted(cpus))], "DONE_PARK")
+
+    @staticmethod
+    def unpark(cpus):
+        if not cpus:
+            return False, "Nothing to unpark"
+        return CCDController._run(
+            ["unpark", ",".join(str(c) for c in sorted(cpus))], "DONE_UNPARK")
+
+    @staticmethod
+    def unpark_all():
+        return CCDController._run(["unpark-all"], "DONE_UNPARK")
 
 
 class GPUController:
@@ -478,13 +371,18 @@ class GameDoctorPage(Gtk.Box):
                     msg = f"Failed: {e}"
 
             elif check.name == "CCD / Game Mode":
-                try:
-                    r = subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "on"],
-                                     capture_output=True, text=True, timeout=30)
-                    ok = "DONE_ON" in r.stdout
-                    msg = "Game Mode activated! CCD1 parked" if ok else "Failed to park CCD1"
-                except Exception as e:
-                    msg = f"Failed: {e}"
+                topo = CPUTopology()
+                keep = topo.keep_ccd()
+                plan = topo.park_plan(keep)
+                if not topo.complete:
+                    msg = "CPU layout unknown while cores are parked — restore all cores first"
+                elif not plan:
+                    msg = "Nothing to park — this CPU has only one CCD"
+                else:
+                    ok, err = CCDController.park(plan)
+                    parked = [c for c in topo.get_all_ccd_ids() if c != keep]
+                    msg = (f"Game Mode on — kept CCD{keep}, parked "
+                           f"{', '.join(f'CCD{c}' for c in parked)}" if ok else err)
 
             elif check.name == "Audio Power Save":
                 try:
@@ -529,24 +427,33 @@ class GameDoctorPage(Gtk.Box):
 
             elif check.name == "GameMode Config":
                 try:
-                    config_path = os.path.expanduser("~/.config/gamemode.ini")
-                    config = """[general]
+                    from topology import CPUTopology, format_cpu_list
+                    topo = CPUTopology()
+                    keep = topo.keep_ccd()
+                    park = topo.park_plan(keep)
+                    if not topo.complete:
+                        msg = "CPU layout unknown while cores are parked — restore all cores first"
+                    elif topo.ccd_count() < 2 or not park:
+                        msg = "Single-CCD CPU — no core parking to configure"
+                    else:
+                        config_path = os.path.expanduser("~/.config/gamemode.ini")
+                        config = f"""[general]
 desiredgov=performance
 renice=0
 ioprio=0
 
 [cpu]
-park_cores=6-11,18-23
-pin_cores=0-5,12-17
+park_cores={format_cpu_list(park)}
+pin_cores={format_cpu_list(topo.get_ccd_cpus(keep))}
 
 [gpu]
 apply_gpu_optimisations=accept-responsibility
 nv_powermizer_mode=1
 """
-                    with open(config_path, "w") as f:
-                        f.write(config)
-                    ok = True
-                    msg = "gamemode.ini created with CCD config"
+                        with open(config_path, "w") as f:
+                            f.write(config)
+                        ok = True
+                        msg = f"gamemode.ini created — pins CCD{keep}, parks {format_cpu_list(park)}"
                 except Exception as e:
                     msg = f"Failed: {e}"
 
@@ -1039,13 +946,14 @@ class CommandCenter(Adw.ApplicationWindow):
         self.lbl_governor = self._stat_tile(stats, "Governor", "---", "")
         left_col.append(stats)
 
-        # CCD section
-        left_col.append(self._section_header("CPU CCDs"))
+        # CCD section — cards are rebuilt whenever the topology changes
+        ccx = self.topo.ccx_per_ccd()
+        header = "CPU CCDs" + (f"  ({ccx} CCX per CCD)" if ccx > 1 else "")
+        left_col.append(self._section_header(header))
+        self.ccd_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left_col.append(self.ccd_box)
         self.ccd_cards = {}
-        for ccd_id in self.topo.get_all_ccd_ids():
-            card = self._build_ccd_card(ccd_id)
-            left_col.append(card)
-            self.ccd_cards[ccd_id] = card
+        self.rebuild_ccd_cards()
 
         # Game Mode button
         self.gm_btn = Gtk.Button(label="Enable Game Mode")
@@ -1053,6 +961,18 @@ class CommandCenter(Adw.ApplicationWindow):
         self.gm_btn.add_css_class("btn-game-on")
         self.gm_btn.connect("clicked", self.on_toggle_gm)
         left_col.append(self.gm_btn)
+
+        # Recovery: brings every core back even if the layout is unknown
+        self.restore_btn = Gtk.Button(label="Restore all cores")
+        self.restore_btn.set_margin_top(4)
+        self.restore_btn.connect("clicked", self.on_restore_cores)
+        left_col.append(self.restore_btn)
+
+        self.gm_status_lbl = Gtk.Label(label="")
+        self.gm_status_lbl.set_halign(Gtk.Align.START)
+        self.gm_status_lbl.set_wrap(True)
+        self.gm_status_lbl.set_margin_top(4)
+        left_col.append(self.gm_status_lbl)
 
         content.append(left_col)
 
@@ -1169,6 +1089,21 @@ class CommandCenter(Adw.ApplicationWindow):
         parent.append(tile)
         return v
 
+    def rebuild_ccd_cards(self):
+        """(Re)create one card per CCD. Called on startup and after the topology
+        is re-detected, since parking removes CPUs from sysfs."""
+        child = self.ccd_box.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.ccd_box.remove(child)
+            child = nxt
+
+        self.ccd_cards = {}
+        for ccd_id in self.topo.get_all_ccd_ids():
+            card = self._build_ccd_card(ccd_id)
+            self.ccd_box.append(card)
+            self.ccd_cards[ccd_id] = card
+
     def _build_ccd_card(self, ccd_id):
         """Simplified CCD card: name, badge, core dots, avg freq."""
         cpus = self.topo.get_ccd_cpus(ccd_id)
@@ -1190,7 +1125,7 @@ class CommandCenter(Adw.ApplicationWindow):
         spacer.set_hexpand(True)
         title_row.append(spacer)
 
-        count_lbl = Gtk.Label(label=f"{len(cpus) // 2} Cores")
+        count_lbl = Gtk.Label(label=f"{self.topo.core_count(ccd_id)} Cores")
         count_lbl.add_css_class("stat-label")
         title_row.append(count_lbl)
         card.append(title_row)
@@ -1344,7 +1279,8 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     def refresh(self):
         # CPU stats
-        self.lbl_threads.set_label(str(self.topo.get_online_count()))
+        cores = self.topo.online_core_count()
+        self.lbl_threads.set_label(str(cores))
         freq = self.topo.get_cpu_freq(0)
         self.lbl_freq.set_label(f"{freq}")
         temp = self.topo.get_temp()
@@ -1353,10 +1289,12 @@ class CommandCenter(Adw.ApplicationWindow):
         self.lbl_governor.set_label(gov)
 
         # Game mode banner + button
-        gm = self.topo.get_game_mode()
+        gm = self.topo.game_mode_active()
         if gm:
+            parked = ", ".join(f"CCD{c}" for c in self.topo.get_parked_ccds())
             self.banner.set_markup(
-                "<span color='#e0af68' weight='600'>GAME MODE - CCD1 parked, 6 cores active</span>")
+                f"<span color='#e0af68' weight='600'>GAME MODE - {parked} parked, "
+                f"{cores} cores active</span>")
             self.banner.add_css_class("banner-gaming")
             self.banner.remove_css_class("banner-normal")
             self.gm_btn.set_label("Disable Game Mode")
@@ -1366,32 +1304,52 @@ class CommandCenter(Adw.ApplicationWindow):
                 "<span color='#e0af68'>  Game Mode ON</span>")
         else:
             self.banner.set_markup(
-                f"<span color='#9ece6a' weight='600'>NORMAL - {self.topo.get_online_count()} cores active</span>")
+                f"<span color='#9ece6a' weight='600'>NORMAL - {cores} cores active</span>")
             self.banner.add_css_class("banner-normal")
             self.banner.remove_css_class("banner-gaming")
             self.gm_btn.set_label("Enable Game Mode")
             self.gm_btn.add_css_class("btn-game-on")
             self.gm_btn.remove_css_class("btn-game-off")
             self.status_footer_lbl.set_markup(
-                f"<span color='#9ece6a'>  {self.topo.get_online_count()} cores active</span>")
+                f"<span color='#9ece6a'>  {cores} cores active</span>")
+
+        # Game Mode needs something to park — a single-CCD CPU has nothing.
+        single_ccd = self.topo.ccd_count() < 2
+        self.gm_btn.set_sensitive(not single_ccd and self.topo.complete)
+        if single_ccd:
+            self.gm_btn.set_tooltip_text(
+                "Game Mode needs a CPU with 2 or more CCDs (Ryzen 9 / Threadripper)")
+        elif not self.topo.complete:
+            self.gm_btn.set_tooltip_text(
+                "CPU layout unknown while cores are parked — restore all cores first")
+        else:
+            keep = self.topo.keep_ccd()
+            self.gm_btn.set_tooltip_text(
+                f"Parks every CCD except CCD{keep} ({self.topo.core_count(keep)} cores stay active)")
 
         # CCD cards
+        keep_ccd = self.topo.keep_ccd()
         for ccd_id, card in self.ccd_cards.items():
             cpus = self.topo.get_ccd_cpus(ccd_id)
             online = sum(1 for c in cpus if self.topo.is_cpu_online(c))
 
             card.remove_css_class("ccd-card-active")
             card.remove_css_class("ccd-card-parked")
-            if online == len(cpus):
-                card.add_css_class("ccd-card-active")
-                card._badge.set_label("ACTIVE")
-                card._badge.add_css_class("badge-active")
-                card._badge.remove_css_class("badge-parked")
-            else:
+            if online == 0:
                 card.add_css_class("ccd-card-parked")
                 card._badge.set_label("PARKED")
                 card._badge.add_css_class("badge-parked")
                 card._badge.remove_css_class("badge-active")
+            else:
+                card.add_css_class("ccd-card-active")
+                label = "ACTIVE"
+                if self.topo.ccd_count() > 1 and ccd_id == keep_ccd:
+                    label = "ACTIVE · KEEP"
+                if 0 < online < len(cpus):
+                    label = f"PARTIAL ({online}/{len(cpus)})"
+                card._badge.set_label(label)
+                card._badge.add_css_class("badge-active")
+                card._badge.remove_css_class("badge-parked")
 
             # Dots
             i = 0
@@ -1450,20 +1408,63 @@ class CommandCenter(Adw.ApplicationWindow):
     # Game Mode Toggle
     # ============================================================
     def on_toggle_gm(self, btn):
-        gm = self.topo.get_game_mode()
+        if not self.topo.complete:
+            self.gm_status_lbl.set_markup(
+                "<span color='#f7768e'>CPU layout unknown — click 'Restore all cores' first</span>")
+            return
+
+        active = self.topo.game_mode_active()
+        keep = self.topo.keep_ccd()
+        plan = self.topo.park_plan(keep)
+
+        if not active and not plan:
+            self.gm_status_lbl.set_markup(
+                "<span color='#f7768e'>Nothing to park — this CPU has only one CCD</span>")
+            return
+
         self.gm_btn.set_sensitive(False)
         self.gm_btn.set_label("Please wait...")
 
         def run_in_thread():
-            if gm:
-                CCDController.unpark()
-                time.sleep(1.5)
+            if active:
+                ok, err = CCDController.unpark_all()
+                msg = "All cores restored" if ok else err
             else:
-                CCDController.park()
-                time.sleep(0.5)
+                ok, err = CCDController.park(plan)
+                msg = (f"Game Mode on — CCD{keep} kept, {len(plan)} threads parked"
+                       if ok else err)
+            # The kernel needs a moment before sysfs reflects the new state.
+            time.sleep(0.5)
 
             def update_ui():
                 self.gm_btn.set_sensitive(True)
+                color = "#9ece6a" if ok else "#f7768e"
+                self.gm_status_lbl.set_markup(f"<span color='{color}'>{GLib.markup_escape_text(msg)}</span>")
+                self.refresh()
+
+            GLib.idle_add(update_ui)
+
+        threading.Thread(target=run_in_thread, daemon=True).start()
+
+    def on_restore_cores(self, btn):
+        """Unpark everything — works even when the topology is unknown."""
+        btn.set_sensitive(False)
+
+        def run_in_thread():
+            ok, err = CCDController.unpark_all()
+            time.sleep(0.5)
+
+            def update_ui():
+                btn.set_sensitive(True)
+                if ok:
+                    # Cores are back: re-detect and cache the full layout.
+                    self.topo.detect()
+                    self.rebuild_ccd_cards()
+                    self.gm_status_lbl.set_markup(
+                        "<span color='#9ece6a'>All cores restored — CPU layout detected</span>")
+                else:
+                    self.gm_status_lbl.set_markup(
+                        f"<span color='#f7768e'>{GLib.markup_escape_text(err)}</span>")
                 self.refresh()
 
             GLib.idle_add(update_ui)
@@ -1517,33 +1518,31 @@ class CommandCenter(Adw.ApplicationWindow):
             "<span color='#7aa2f7' weight='bold'>Benchmark starting...</span>\n"
             "<span color='#565f89'>Testing each core individually (~25 seconds)</span>")
 
-        # Collect all physical cores across CCDs
-        all_cores = []
-        for ccd_id in self.topo.get_all_ccd_ids():
-            cpus = sorted(self.topo.get_ccd_cpus(ccd_id))
-            mid = len(cpus) // 2
-            physical = cpus[:mid]
-            online_physical = [c for c in physical if self.topo.is_cpu_online(c)]
-            if online_physical:
-                all_cores.append((ccd_id, online_physical))
-
-        # If CCD1 disappeared from topology (parked), add it manually
-        if len(all_cores) < 2:
-            try:
-                with open("/sys/devices/system/cpu/cpu6/online") as f:
-                    if f.read().strip() == "0":
-                        all_cores.append((1, [6, 7, 8, 9, 10, 11]))
-            except:
-                pass
-
-        total_cores = sum(len(cores) for _, cores in all_cores)
-        if total_cores == 0:
+        def abort(message):
             self.benching = False
             self.bench_btn.set_label("Run CCD Benchmark")
             self.bench_btn.set_sensitive(True)
             self.bench_progress.set_visible(False)
-            self.bench_label.set_markup(
-                "<span color='#f7768e'>No cores available for benchmark</span>")
+            self.bench_label.set_markup(f"<span color='#f7768e'>{message}</span>")
+
+        # A parked core cannot be benchmarked — taskset would fail and the CCD
+        # would score 0, which used to read as "the other CCD is 100% faster".
+        if self.topo.game_mode_active():
+            abort("Cores are parked — disable Game Mode first, "
+                  "otherwise the parked CCD cannot be measured.")
+            return
+
+        # One CPU per physical core, per CCD, straight from the topology.
+        all_cores = []
+        for ccd_id in self.topo.get_all_ccd_ids():
+            online = [c for c in self.topo.get_physical_cores(ccd_id)
+                      if self.topo.is_cpu_online(c)]
+            if online:
+                all_cores.append((ccd_id, online))
+
+        total_cores = sum(len(cores) for _, cores in all_cores)
+        if total_cores == 0:
+            abort("No cores available for benchmark")
             return
 
         cores_done = [0]
@@ -1638,16 +1637,20 @@ class CommandCenter(Adw.ApplicationWindow):
             text += f"<span color='{color}'>{icon} <b>CCD{ccd_id}</b>  {bar}  {gb_s:.2f} GB/s ({pct:.0f}%)</span>\n"
 
         if best_ccd is not None:
-            # Calculate how much faster
-            if len(ccd_avgs) > 1:
-                other_avg = [v for k, v in ccd_avgs.items() if k != best_ccd]
-                if other_avg:
-                    diff_pct = ((best_avg - other_avg[0]) / other_avg[0]) * 100
-                    text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is {diff_pct:.1f}% faster → keep for gaming!</span>"
-                else:
-                    text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is best → keep for gaming!</span>"
+            others = [v for k, v in ccd_avgs.items() if k != best_ccd]
+            if others and max(others) > 0:
+                diff_pct = ((best_avg - max(others)) / max(others)) * 100
+                text += (f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is "
+                         f"{diff_pct:.1f}% faster</span>")
             else:
-                text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is best → keep for gaming!</span>"
+                text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is best</span>"
+
+            # Feed the result back into Game Mode: it parks everything except
+            # this CCD from now on, instead of always assuming CCD1 is the weak one.
+            if len(ccd_avgs) > 1 and save_config({"keep_ccd": best_ccd}):
+                parked = [c for c in self.topo.get_all_ccd_ids() if c != best_ccd]
+                text += (f"\n<span color='#9ece6a'>Game Mode will now keep CCD{best_ccd} "
+                         f"and park {', '.join(f'CCD{c}' for c in parked)}.</span>")
 
         self.bench_label.set_markup(text)
         self.best_ccd = best_ccd

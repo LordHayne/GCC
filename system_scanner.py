@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Gaming Command Center — System Scanner for Setup Wizard"""
 import subprocess, os, re, shutil
+from topology import CPUTopology, format_cpu_list
 
 class SystemCheck:
     """Single system check with status + fix."""
@@ -82,49 +83,22 @@ def scan_system():
 
     # 5. CCD count + Game Mode
     def check_ccd():
-        try:
-            r = subprocess.run(["lscpu", "-e=CPU,CACHE"], capture_output=True, text=True, timeout=3)
-            lines = r.stdout.strip().split("\n")[1:]
-            cache_ids = {}
-            for line in lines:
-                parts = line.split()
-                if len(parts) >= 2:
-                    cpu = int(parts[0])
-                    caches = parts[1].split(":")
-                    if caches[0] == "-":
-                        continue
-                    l3_id = caches[-1] if caches else ""
-                    if l3_id and l3_id != "-":
-                        cache_ids.setdefault(int(l3_id), []).append(cpu)
+        topo = CPUTopology()
+        count = topo.ccd_count()
+        if count < 2:
+            return "info", f"{count} CCD — Game Mode not available (requires 2+ CCDs)", ""
 
-            total_cpus = len(lines)
-            num_cache_groups = len(cache_ids)
+        parked = topo.get_parked_ccds()
+        if parked:
+            names = ", ".join(f"CCD{c}" for c in parked)
+            return "ok", f"{count} CCDs — Game Mode ACTIVE ({names} parked) ✅", ""
 
-            if total_cpus >= 20 and num_cache_groups <= 2:
-                ccd_count = 2
-            elif total_cpus >= 12 and num_cache_groups >= 2:
-                ccd_count = 2
-            elif num_cache_groups >= 3:
-                ccd_count = 2
-            else:
-                ccd_count = 1
-
-            if ccd_count >= 2:
-                any_offline = False
-                for cpu in [6, 7, 8, 9, 10, 11, 18, 19, 20, 21, 22, 23]:
-                    try:
-                        with open(f"/sys/devices/system/cpu/cpu{cpu}/online") as f:
-                            if f.read().strip() == "0":
-                                any_offline = True
-                                break
-                    except:
-                        pass
-                if any_offline:
-                    return "ok", f"{ccd_count} CCDs detected — Game Mode ACTIVE ✅", ""
-                return "warning", f"{ccd_count} CCDs detected — Game Mode not active", "Park CCD1 for better gaming performance (better CCD gets exclusive access)"
-            return "info", f"{ccd_count} CCD — Game Mode not available (requires 2+ CCDs)", ""
-        except:
-            return "info", "Could not detect CCD count", ""
+        keep = topo.keep_ccd()
+        park = topo.park_plan(keep)
+        return ("warning",
+                f"{count} CCDs detected — Game Mode not active",
+                f"Park CPUs {format_cpu_list(park)} so CCD{keep} "
+                f"({topo.core_count(keep)} cores) gets exclusive cache and boost headroom")
     checks.append(SystemCheck("CCD / Game Mode", check_ccd))
 
     # === GPU ===
