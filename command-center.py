@@ -1080,6 +1080,13 @@ class CommandCenter(Adw.ApplicationWindow):
             background: #1e1f2e; border-radius: 12px; padding: 12px 16px;
             border: 1px solid rgba(255,255,255,0.05);
         }
+        .info-card {
+            background: #1e1f2e; border-radius: 10px; padding: 8px 12px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .info-card:hover { background: #24263a; border-color: rgba(122,162,247,0.3); }
+        .info-card-title { color: #c0caf5; font-weight: bold; font-size: 13px; }
+        .info-card-sub { color: #565f89; font-size: 12px; }
 
         /* === Sliders === */
         scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
@@ -1442,6 +1449,16 @@ class CommandCenter(Adw.ApplicationWindow):
         self.gm_status_lbl.set_margin_top(4)
         left_col.append(self.gm_status_lbl)
 
+        # Quick-info cards: detected games + benchmark status, both clickable.
+        left_col.append(self._section_header("Overview"))
+        self.games_info = self._info_card(
+            "🎮", "Games", "Scanning…", "games")
+        left_col.append(self.games_info)
+        self.bench_info = self._info_card(
+            "🏆", "CCD Benchmark", "…", "benchmark")
+        left_col.append(self.bench_info)
+        self._refresh_overview_async()
+
         content.append(left_col)
 
         # --- Right column: GPU monitoring + Overclocking ---
@@ -1452,6 +1469,71 @@ class CommandCenter(Adw.ApplicationWindow):
         page.append(scroll)
 
         return page
+
+    def _info_card(self, emoji, title, subtitle, target_page):
+        """Small clickable card for the dashboard overview → jumps to a page."""
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        card.add_css_class("info-card")
+        card.set_margin_top(4)
+
+        ic = Gtk.Label()
+        ic.set_markup(f"<span size='20000'>{emoji}</span>")
+        card.append(ic)
+
+        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        txt.set_valign(Gtk.Align.CENTER)
+        t = Gtk.Label(label=title); t.add_css_class("info-card-title"); t.set_xalign(0)
+        txt.append(t)
+        sub = Gtk.Label(label=subtitle); sub.add_css_class("info-card-sub"); sub.set_xalign(0)
+        sub.set_wrap(True)
+        txt.append(sub)
+        card.append(txt)
+
+        spacer = Gtk.Box(); spacer.set_hexpand(True); card.append(spacer)
+        arrow = Gtk.Label(); arrow.set_markup("<span color='#565f89'>›</span>")
+        card.append(arrow)
+
+        gesture = Gtk.GestureClick()
+        gesture.connect("pressed", lambda *a: self.switch_page(target_page))
+        card.add_controller(gesture)
+        card.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+        card._sub = sub
+        return card
+
+    def _refresh_overview_async(self):
+        """Fill the overview cards off the main thread (Steam scan + config read)."""
+        def work():
+            from topology import load_config
+            games_line = "No Steam games detected"
+            try:
+                db, _ = game_db.load_games()
+                root = steam_scanner.find_steam_root()
+                if root:
+                    installed = {a: n for a, n in steam_scanner.installed_appids(root).items()
+                                 if not GamesPage._is_steam_tool(n)}
+                    with_fixes = sum(1 for a in installed if a in db)
+                    games_line = (f"{len(installed)} installed · {with_fixes} with known fixes"
+                                  if installed else "No Steam games detected")
+            except Exception:
+                games_line = "Could not scan Steam"
+
+            bench = load_config().get("bench")
+            if isinstance(bench, dict) and bench.get("cpu") == self.topo.get_cpu_name():
+                keep = load_config().get("keep_ccd")
+                bench_line = (f"Done — Game Mode keeps CCD{keep}" if keep is not None
+                              else "Done — see Benchmark page")
+            elif self.topo.ccd_count() < 2:
+                bench_line = "Single-CCD CPU — not needed"
+            else:
+                bench_line = "Not run yet — find your best CCD"
+
+            def apply():
+                self.games_info._sub.set_text(games_line)
+                self.bench_info._sub.set_text(bench_line)
+                return False
+            GLib.idle_add(apply)
+
+        threading.Thread(target=work, daemon=True).start()
 
     # ============================================================
     # Benchmark Page
@@ -1498,7 +1580,6 @@ class CommandCenter(Adw.ApplicationWindow):
         # Live per-core bars, grouped by CCD, built on demand
         self.bench_results = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.bench_results.set_margin_top(12)
-        self.bench_results.append(self._build_bench_empty())
         content.append(self.bench_results)
         self.bench_rows = {}      # cpu -> {"bar", "val", "row"}
         self.bench_ccd_hdr = {}   # ccd_id -> {"avg", "badge"}
@@ -1510,6 +1591,10 @@ class CommandCenter(Adw.ApplicationWindow):
         self.bench_verdict.set_wrap(True)
         self.bench_verdict.set_margin_top(4)
         content.append(self.bench_verdict)
+
+        # Show the last saved result if there is one, else the empty state.
+        if not self._restore_bench():
+            self.bench_results.append(self._build_bench_empty())
 
         scroll.set_child(content)
         page.append(scroll)
@@ -1567,6 +1652,52 @@ class CommandCenter(Adw.ApplicationWindow):
         hint.set_margin_top(8)
         box.append(hint)
         return box
+
+    def _bench_frac(self, mhz):
+        """Bar fill for a clock, scaled 50%..100% of rated max boost so small
+        differences between cores read clearly."""
+        try:
+            with open("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq") as f:
+                max_mhz = int(f.read()) // 1000
+        except OSError:
+            max_mhz = 5000
+        floor = int(max_mhz * 0.5)
+        if mhz <= floor:
+            return 0.0
+        return min((mhz - floor) / (max_mhz - floor), 1.0)
+
+    def _save_bench(self, all_results):
+        """Persist the full per-core result so the page shows it again next
+        launch instead of an empty state."""
+        data = {str(ccd): {str(cpu): mhz for cpu, mhz in cores.items()}
+                for ccd, cores in all_results.items()}
+        save_config({"bench": {"cpu": self.topo.get_cpu_name(), "results": data}})
+
+    def _load_saved_bench(self):
+        """Return a prior run's {ccd: {cpu: mhz}} if it matches this CPU, else None."""
+        from topology import load_config
+        bench = load_config().get("bench")
+        if not isinstance(bench, dict) or bench.get("cpu") != self.topo.get_cpu_name():
+            return None
+        try:
+            return {int(ccd): {int(cpu): float(mhz) for cpu, mhz in cores.items()}
+                    for ccd, cores in bench["results"].items()}
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _restore_bench(self):
+        """Render a saved benchmark result on page build, if there is one."""
+        saved = self._load_saved_bench()
+        if not saved:
+            return False
+        self._build_bench_rows()
+        for ccd, cores in saved.items():
+            for cpu, mhz in cores.items():
+                self._bench_final_row(cpu, int(mhz), self._bench_frac(mhz))
+        self._show_bench(saved, persist=False)
+        self.bench_status.set_markup(
+            "<span color='#565f89'>Showing your last benchmark — run again to refresh</span>")
+        return True
 
     def _build_bench_rows(self):
         """Lay out one bar per physical core, grouped by CCD, ready to fill in
@@ -2239,19 +2370,7 @@ class CommandCenter(Adw.ApplicationWindow):
         self.bench_progress.set_fraction(0.0)
         self._build_bench_rows()
 
-        # Scale bars against the CPU's rated max boost.
-        try:
-            with open("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq") as f:
-                max_mhz = int(f.read()) // 1000
-        except OSError:
-            max_mhz = 5000
-        floor = int(max_mhz * 0.5)  # bars span 50%..100% so differences read clearly
-
-        def frac(mhz):
-            if mhz <= floor:
-                return 0.0
-            return min((mhz - floor) / (max_mhz - floor), 1.0)
-
+        frac = self._bench_frac  # bars span 50%..100% of rated max boost
         cores_done = [0]
         all_results = {}
 
@@ -2326,7 +2445,7 @@ class CommandCenter(Adw.ApplicationWindow):
         self.bench_progress.set_visible(False)
         self._show_bench(all_results, forced, prev_gov)
 
-    def _show_bench(self, all_results, forced=False, prev_gov=""):
+    def _show_bench(self, all_results, forced=False, prev_gov="", persist=True):
         """Fill in each CCD's average and the verdict once measuring is done."""
         ccd_avgs = {}
         best_ccd, best_avg = None, 0
@@ -2344,8 +2463,10 @@ class CommandCenter(Adw.ApplicationWindow):
                 "<span color='#f7768e' weight='bold'>No results — benchmark failed</span>")
             return
 
-        self.bench_status.set_markup(
-            "<span color='#9ece6a' weight='bold'>Benchmark complete</span>")
+        if persist:
+            self.bench_status.set_markup(
+                "<span color='#9ece6a' weight='bold'>Benchmark complete</span>")
+            self._save_bench(all_results)
 
         for ccd_id, hdr in self.bench_ccd_hdr.items():
             if ccd_id not in ccd_avgs:
