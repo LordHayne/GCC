@@ -2,12 +2,14 @@
 """
 Gaming Command Center — Kommandozentrale für AMD Ryzen + NVIDIA GPU
 Dark themed GUI with CCD-Parking, GPU-OC, and Live Monitoring.
+Now with Setup Wizard tab for system checks.
 """
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GLib, Gdk, GObject
-import subprocess, os, re, threading
+import subprocess, os, re, threading, time
+from system_scanner import scan_system
 
 # ============================================================
 # CPU Topology
@@ -84,15 +86,46 @@ class CPUTopology:
         return 0.0
 
     def get_game_mode(self):
-        if self.ccd_count() < 2:
+        """Check if CCD1 is parked by testing CPU6 directly.
+        Don't rely on self.ccds — offline CPUs disappear from topology."""
+        try:
+            with open("/sys/devices/system/cpu/cpu6/online") as f:
+                return f.read().strip() == "0"
+        except:
+            # CPU6 might not exist (non-2-CCD CPU) — check total CPU count
             return False
-        for cpu in self.get_ccd_cpus(1):
-            if not self.is_cpu_online(cpu):
-                return True
-        return False
 
     def get_online_count(self):
-        return sum(1 for ccd in self.ccds.values() for cpu in ccd if self.is_cpu_online(cpu))
+        """Count online CPU cores (SMT threads / 2 = physical cores).
+        Reads sysfs directly — don't rely on self.ccds which loses CCD1 when parked."""
+        threads = 0
+        for cpu in range(128):
+            online_path = f"/sys/devices/system/cpu/cpu{cpu}/online"
+            try:
+                with open(online_path) as f:
+                    if f.read().strip() == "1":
+                        threads += 1
+            except FileNotFoundError:
+                # CPU0 has no 'online' file but is always online
+                # Check if the CPU directory exists
+                if os.path.isdir(f"/sys/devices/system/cpu/cpu{cpu}"):
+                    threads += 1
+                else:
+                    break  # No more CPUs
+        # SMT: 2 threads per core → physical cores = threads / 2
+        smt = True
+        try:
+            with open("/sys/devices/system/cpu/smt/control") as f:
+                smt = f.read().strip() != "off"
+        except:
+            pass
+        if smt and threads > 1:
+            return threads // 2
+        return threads
+
+    def get_total_count(self):
+        """Total CPU count (including offline)"""
+        return subprocess.run(["nproc", "--all"], capture_output=True, text=True).stdout.strip()
 
     def get_cpu_name(self):
         try:
@@ -217,6 +250,215 @@ class GPUController:
 
 
 # ============================================================
+# Setup Wizard Tab
+# ============================================================
+class SetupWizard(Gtk.Box):
+    """Setup Wizard tab — runs system_scanner.scan_system() and displays results."""
+
+    def __init__(self, **kwargs):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
+
+        # Scan button at top
+        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        top_bar.set_margin_start(12)
+        top_bar.set_margin_end(12)
+        top_bar.set_margin_top(12)
+        top_bar.set_margin_bottom(8)
+
+        self.scan_btn = Gtk.Button(label="🔍 Scan System")
+        self.scan_btn.add_css_class("btn-apply")
+        self.scan_btn.connect("clicked", self.on_scan_clicked)
+        top_bar.append(self.scan_btn)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        top_bar.append(spacer)
+
+        self.scan_status_lbl = Gtk.Label(label="")
+        self.scan_status_lbl.add_css_class("stat-label")
+        top_bar.append(self.scan_status_lbl)
+
+        self.append(top_bar)
+
+        # Separator
+        self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        # Scrolled area for results
+        self.scroll = Gtk.ScrolledWindow()
+        self.scroll.set_vexpand(True)
+        self.scroll.set_propagate_natural_height(False)
+
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(640)
+
+        self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.results_box.set_margin_start(6)
+        self.results_box.set_margin_end(6)
+        self.results_box.set_margin_top(8)
+        self.results_box.set_margin_bottom(8)
+
+        # Placeholder before first scan
+        self.placeholder = Gtk.Label(label='Click "Scan System" to start')
+        self.placeholder.set_markup("<span color='#565f89' size='13'>Click \"Scan System\" to start</span>")
+        self.placeholder.set_margin_top(40)
+        self.results_box.append(self.placeholder)
+
+        clamp.set_child(self.results_box)
+        self.scroll.set_child(clamp)
+        self.append(self.scroll)
+
+        # Summary at bottom
+        self.summary_lbl = Gtk.Label(label="")
+        self.summary_lbl.set_halign(Gtk.Align.CENTER)
+        self.summary_lbl.set_margin_top(4)
+        self.summary_lbl.set_margin_bottom(8)
+        self.append(self.summary_lbl)
+
+        self.scanning = False
+
+    def on_scan_clicked(self, btn):
+        if self.scanning:
+            return
+        self.scanning = True
+        self.scan_btn.set_sensitive(False)
+        self.scan_btn.set_label("⏳ Scanning...")
+        self.scan_status_lbl.set_label("Scanning system...")
+
+        # Clear old results
+        child = self.results_box.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            self.results_box.remove(child)
+            child = next_child
+
+        # Add spinner
+        spinner = Gtk.Spinner()
+        spinner.set_margin_top(40)
+        spinner.start()
+        self.results_box.append(spinner)
+
+        def run_scan():
+            try:
+                checks = scan_system()
+            except Exception as e:
+                checks = []
+                GLib.idle_add(lambda: self.scan_status_lbl.set_label(f"Error: {e}"))
+            GLib.idle_add(lambda: self.display_results(checks))
+
+        threading.Thread(target=run_scan, daemon=True).start()
+
+    def display_results(self, checks):
+        self.scanning = False
+        self.scan_btn.set_sensitive(True)
+        self.scan_btn.set_label("🔍 Scan System")
+        self.scan_status_lbl.set_label("Scan complete")
+
+        # Clear
+        child = self.results_box.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            self.results_box.remove(child)
+            child = next_child
+
+        ok_count = 0
+        warn_count = 0
+        info_count = 0
+
+        for check in checks:
+            if check.status == "ok":
+                ok_count += 1
+            elif check.status == "warning":
+                warn_count += 1
+            elif check.status == "info":
+                info_count += 1
+
+            row = self._build_check_row(check)
+            self.results_box.append(row)
+
+        # Summary
+        summary_text = f"{ok_count} OK, {warn_count} Warnings, {info_count} Info"
+        if warn_count > 0:
+            self.summary_lbl.set_markup(
+                f"<span color='#e0af68' weight='bold'>⚠️ {summary_text}</span>")
+        elif ok_count > 0:
+            self.summary_lbl.set_markup(
+                f"<span color='#9ece6a' weight='bold'>✅ {summary_text}</span>")
+        else:
+            self.summary_lbl.set_markup(
+                f"<span color='#7aa2f7' weight='bold'>ℹ️ {summary_text}</span>")
+
+    def _build_check_row(self, check):
+        """Build a single check result row."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        row.set_margin_start(10)
+        row.set_margin_end(10)
+        row.set_margin_top(6)
+        row.set_margin_bottom(6)
+
+        # Status icon
+        if check.status == "ok":
+            icon_text = "✅"
+            icon_color = "#9ece6a"
+        elif check.status == "warning":
+            icon_text = "⚠️"
+            icon_color = "#e0af68"
+        else:
+            icon_text = "ℹ️"
+            icon_color = "#7aa2f7"
+
+        icon_lbl = Gtk.Label(label=icon_text)
+        icon_lbl.set_markup(f"<span color='{icon_color}' size='18'>{icon_text}</span>")
+        icon_lbl.set_valign(Gtk.Align.START)
+        icon_lbl.set_margin_top(2)
+        row.append(icon_lbl)
+
+        # Name + message column
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box.set_hexpand(True)
+
+        name_lbl = Gtk.Label(label=check.name)
+        name_lbl.set_markup(f"<span color='#c0caf5' weight='bold' size='13'>{check.name}</span>")
+        name_lbl.set_halign(Gtk.Align.START)
+        name_lbl.set_xalign(0)
+        text_box.append(name_lbl)
+
+        msg_lbl = Gtk.Label(label=check.message)
+        msg_lbl.set_markup(f"<span color='#a9b1d6' size='11'>{check.message}</span>")
+        msg_lbl.set_halign(Gtk.Align.START)
+        msg_lbl.set_xalign(0)
+        msg_lbl.set_wrap(True)
+        text_box.append(msg_lbl)
+
+        # Fix message if present
+        if check.fix_message and check.status == "warning":
+            fix_lbl = Gtk.Label(label=check.fix_message)
+            fix_lbl.set_markup(f"<span color='#e0af68' size='10'>→ {check.fix_message}</span>")
+            fix_lbl.set_halign(Gtk.Align.START)
+            fix_lbl.set_xalign(0)
+            fix_lbl.set_wrap(True)
+            text_box.append(fix_lbl)
+
+        row.append(text_box)
+
+        # Fix button for warnings
+        if check.status == "warning" and check.fix_message:
+            fix_btn = Gtk.Button(label="Apply Fix")
+            fix_btn.add_css_class("btn-apply")
+            fix_btn.set_valign(Gtk.Align.CENTER)
+            fix_btn.set_margin_start(8)
+            fix_btn.connect("clicked", self.on_fix_clicked, check)
+            row.append(fix_btn)
+
+        return row
+
+    def on_fix_clicked(self, btn, check):
+        """Non-functional for now — just visual placeholder."""
+        btn.set_label("⏳...")
+        btn.set_sensitive(False)
+        GLib.timeout_add(1500, lambda: [btn.set_label("Apply Fix"), btn.set_sensitive(True), False][2])
+
+
+# ============================================================
 # Main Window
 # ============================================================
 class CommandCenter(Adw.ApplicationWindow):
@@ -224,6 +466,12 @@ class CommandCenter(Adw.ApplicationWindow):
         super().__init__(application=app)
         self.set_title("Gaming Command Center")
         self.set_default_size(680, 720)
+        # Set window icon
+        try:
+            pixbuf = Gdk.pixbuf_new_from_file("/home/thomas/.local/share/icons/hicolor/256x256/apps/gaming-command-center.png")
+            self.set_icon(pixbuf)
+        except:
+            pass
         self.topo = CPUTopology()
         self.gpu = GPUInfo()
         self.benching = False
@@ -344,6 +592,48 @@ class CommandCenter(Adw.ApplicationWindow):
         scale { margin-top: 4px; margin-bottom: 4px; }
 
         separator { background: rgba(255,255,255,0.04); }
+
+        /* Setup Wizard styling */
+        .scan-row {
+            background: #24253b;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 2px 0;
+            border: 1px solid rgba(255,255,255,0.04);
+        }
+        .scan-row-warning {
+            background: rgba(224,175,104,0.04);
+            border: 1px solid rgba(224,175,104,0.08);
+        }
+        .scan-row-ok {
+            background: rgba(158,206,106,0.04);
+            border: 1px solid rgba(158,206,106,0.08);
+        }
+        .scan-row-info {
+            background: rgba(122,162,247,0.04);
+            border: 1px solid rgba(122,162,247,0.08);
+        }
+        .scan-summary {
+            font-size: 13px; font-weight: 700;
+            padding: 10px 16px;
+            border-radius: 10px;
+            margin-top: 8px;
+        }
+        .scan-summary-warn {
+            background: rgba(224,175,104,0.1);
+            border: 1px solid rgba(224,175,104,0.15);
+            color: #e0af68;
+        }
+        .scan-summary-ok {
+            background: rgba(158,206,106,0.1);
+            border: 1px solid rgba(158,206,106,0.15);
+            color: #9ece6a;
+        }
+        .scan-summary-info {
+            background: rgba(122,162,247,0.1);
+            border: 1px solid rgba(122,162,247,0.15);
+            color: #7aa2f7;
+        }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css.encode())
@@ -357,18 +647,41 @@ class CommandCenter(Adw.ApplicationWindow):
         GLib.timeout_add(1500, self.refresh)
 
     def build_ui(self):
-        clamp = Adw.Clamp()
-        clamp.set_maximum_size(640)
-
+        # Main vertical box for the whole window
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         header = Adw.HeaderBar()
         header.add_css_class("flat")
         self.set_content(main_box)
         main_box.append(header)
 
+        # Adw.ViewSwitcher + Adw.ViewStack for tabbed interface
+        self.view_stack = Adw.ViewStack()
+        self.view_stack.set_vexpand(True)
+
+        # --- Dashboard page ---
+        dashboard_page = self.view_stack.add_titled(
+            self._build_dashboard_content(), "dashboard", "Dashboard")
+
+        # --- Setup Wizard page ---
+        self.setup_wizard = SetupWizard()
+        wizard_page = self.view_stack.add_titled(
+            self.setup_wizard, "wizard", "Setup Wizard")
+
+        # ViewSwitcher bar (in header area, below headerbar)
+        switcher_bar = Adw.ViewSwitcherBar()
+        switcher_bar.set_stack(self.view_stack)
+        switcher_bar.set_reveal(True)
+
+        main_box.append(self.view_stack)
+        main_box.append(switcher_bar)
+
+    def _build_dashboard_content(self):
+        """Build the existing Dashboard UI (formerly build_ui content)."""
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(640)
+
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
-        # FIX: disable scroll propagation so scrolling in the page doesn't change sliders
         scroll.set_propagate_natural_height(False)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -377,7 +690,6 @@ class CommandCenter(Adw.ApplicationWindow):
         content.set_margin_bottom(20)
         clamp.set_child(content)
         scroll.set_child(clamp)
-        main_box.append(scroll)
 
         # CPU name
         cpu_name = self.topo.get_cpu_name()
@@ -396,7 +708,7 @@ class CommandCenter(Adw.ApplicationWindow):
         stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         stats.set_margin_top(8)
         stats.set_homogeneous(True)
-        self.lbl_threads = self._stat_tile(stats, "Threads", "24", "blue")
+        self.lbl_threads = self._stat_tile(stats, "Cores", "24", "blue")
         self.lbl_freq = self._stat_tile(stats, "Clock", "---", "orange")
         self.lbl_temp = self._stat_tile(stats, "Temp", "--°", "green")
         content.append(stats)
@@ -410,14 +722,14 @@ class CommandCenter(Adw.ApplicationWindow):
             self.ccd_cards[ccd_id] = card
 
         # Game Mode button
-        self.gm_btn = Gtk.Button(label="🎮 Game Mode aktivieren")
+        self.gm_btn = Gtk.Button(label="🎮 Enable Game Mode")
         self.gm_btn.set_margin_top(8)
         self.gm_btn.add_css_class("btn-game-on")
         self.gm_btn.connect("clicked", self.on_toggle_gm)
         content.append(self.gm_btn)
 
         # Benchmark
-        self.bench_btn = Gtk.Button(label="⚡ CCD-Benchmark testen")
+        self.bench_btn = Gtk.Button(label="⚡ Run CCD Benchmark")
         self.bench_btn.set_margin_top(4)
         self.bench_btn.add_css_class("btn-bench")
         self.bench_btn.connect("clicked", self.on_benchmark)
@@ -439,6 +751,8 @@ class CommandCenter(Adw.ApplicationWindow):
         # GPU section
         content.append(self._section_header("🎨 NVIDIA GPU"))
         content.append(self._build_gpu_card())
+
+        return scroll
 
     def _section_header(self, text):
         lbl = Gtk.Label(label=text)
@@ -482,7 +796,7 @@ class CommandCenter(Adw.ApplicationWindow):
         spacer.set_hexpand(True)
         title_row.append(spacer)
 
-        count_lbl = Gtk.Label(label=f"{len(cpus)} Threads")
+        count_lbl = Gtk.Label(label=f"{len(cpus) // 2} Cores")
         count_lbl.add_css_class("stat-label")
         title_row.append(count_lbl)
         card.append(title_row)
@@ -539,8 +853,8 @@ class CommandCenter(Adw.ApplicationWindow):
         gpu_card.append(self.gpu_clock_bar)
 
         # OC Section
-        oc_title = Gtk.Label(label="Übertaktung")
-        oc_title.set_markup("<span weight='bold' color='#7aa2f7' size='12'>⚡ Übertaktung</span>")
+        oc_title = Gtk.Label(label="Overclocking")
+        oc_title.set_markup("<span weight='bold' color='#7aa2f7' size='12'>⚡ Overclocking</span>")
         oc_title.set_halign(Gtk.Align.START)
         oc_title.set_margin_top(10)
         gpu_card.append(oc_title)
@@ -601,7 +915,7 @@ class CommandCenter(Adw.ApplicationWindow):
         gpu_card.append(pm_row)
 
         # Apply button
-        self.oc_btn = Gtk.Button(label="⚡ OC anwenden")
+        self.oc_btn = Gtk.Button(label="⚡ Apply OC")
         self.oc_btn.set_margin_top(8)
         self.oc_btn.add_css_class("btn-apply")
         self.oc_btn.connect("clicked", self.on_apply_oc)
@@ -624,18 +938,18 @@ class CommandCenter(Adw.ApplicationWindow):
         gm = self.topo.get_game_mode()
         if gm:
             self.banner.set_markup(
-                "<span color='#e0af68' weight='600'>🎮 GAME MODE — CCD1 geparkt, 6 Kerne aktiv</span>")
+                "<span color='#e0af68' weight='600'>🎮 GAME MODE — CCD1 parked, 6 cores active</span>")
             self.banner.add_css_class("banner-gaming")
             self.banner.remove_css_class("banner-normal")
-            self.gm_btn.set_label("🟢 Normal Mode aktivieren")
+            self.gm_btn.set_label("🟢 Disable Game Mode")
             self.gm_btn.remove_css_class("btn-game-on")
             self.gm_btn.add_css_class("btn-game-off")
         else:
             self.banner.set_markup(
-                f"<span color='#9ece6a' weight='600'>🟢 NORMAL — {self.topo.get_online_count()} Threads aktiv</span>")
+                f"<span color='#9ece6a' weight='600'>🟢 NORMAL — {self.topo.get_online_count()} cores active</span>")
             self.banner.add_css_class("banner-normal")
             self.banner.remove_css_class("banner-gaming")
-            self.gm_btn.set_label("🎮 Game Mode aktivieren")
+            self.gm_btn.set_label("🎮 Enable Game Mode")
             self.gm_btn.add_css_class("btn-game-on")
             self.gm_btn.remove_css_class("btn-game-off")
 
@@ -682,7 +996,7 @@ class CommandCenter(Adw.ApplicationWindow):
                 avg = sum(freqs) // len(freqs) if freqs else 0
                 card._avg_freq.set_label(f"Ø {avg} MHz")
             else:
-                card._avg_freq.set_label("geparkt")
+                card._avg_freq.set_label("parked")
 
         # GPU
         self.gpu.update()
@@ -710,16 +1024,18 @@ class CommandCenter(Adw.ApplicationWindow):
     def on_toggle_gm(self, btn):
         gm = self.topo.get_game_mode()
         self.gm_btn.set_sensitive(False)
-        self.gm_btn.set_label("⏳ Bitte warten...")
+        self.gm_btn.set_label("⏳ Please wait...")
 
         def run_in_thread():
             if gm:
-                ok = CCDController.unpark()
+                CCDController.unpark()
+                # Wait for CPUs to come back online
+                time.sleep(1.5)
             else:
-                ok = CCDController.park()
+                CCDController.park()
+                time.sleep(0.5)
 
             def update_ui():
-                self.topo.detect()
                 self.gm_btn.set_sensitive(True)
                 self.refresh()
 
@@ -753,50 +1069,71 @@ class CommandCenter(Adw.ApplicationWindow):
                 f"PM: {['Adaptive','Max Perf','Auto'][pm]}</span>")
         else:
             self.oc_status_lbl.set_markup(
-                "<span color='#f7768e'>❌ Fehler — Coolbits aktiviert?</span>")
+                "<span color='#f7768e'>❌ Error — Coolbits enabled?</span>")
         GLib.timeout_add(1000, self.refresh)
 
     def on_benchmark(self, btn):
         if self.benching: return
         self.benching = True
-        self.bench_btn.set_label("⚡ Benchmark läuft...")
+        self.bench_btn.set_label("⚡ Benchmark running...")
         self.bench_btn.set_sensitive(False)
         self.bench_progress.set_visible(True)
         self.bench_progress.set_fraction(0.0)
-        self.bench_label.set_markup("<span color='#7aa2f7' weight='bold'>📊 Benchmark startet...</span>\n<span color='#565f89'>Teste jeden Kern einzeln (≈25 Sekunden)</span>")
-
-        all_results = {}
-        total_ccds = self.topo.ccd_count()
+        self.bench_label.set_markup(
+            "<span color='#7aa2f7' weight='bold'>📊 Benchmark starting...</span>\n"
+            "<span color='#565f89'>Testing each core individually (~25 seconds)</span>")
 
         # Collect all physical cores across CCDs
+        # SMT pairs: CPU 0+12, 1+13, 2+14, etc. — physical core = the lower CPU number
+        # For CCD0: cpus=[0-5,12-17] → physical=[0,1,2,3,4,5]
+        # For CCD1: cpus=[6-11,18-23] → physical=[6,7,8,9,10,11]
         all_cores = []
-        for ccd_id in range(total_ccds):
-            cpus = self.topo.get_ccd_cpus(ccd_id)
-            physical = [c for c in cpus if c < len(cpus) // 2 + 1]
-            all_cores.append((ccd_id, physical))
+        for ccd_id in self.topo.get_all_ccd_ids():
+            cpus = sorted(self.topo.get_ccd_cpus(ccd_id))
+            # Physical cores = CPUs that are < first SMT sibling offset
+            # In a 24-thread CPU, threads 12-23 are SMT siblings of 0-11
+            # So physical = CPUs where cpu < total_threads / 2 (i.e. < 12 for 24-thread)
+            # But per-CCD: physical = first half of the CCD's CPU list
+            mid = len(cpus) // 2
+            physical = cpus[:mid]
+            # Only include cores that are actually online
+            online_physical = [c for c in physical if self.topo.is_cpu_online(c)]
+            if online_physical:
+                all_cores.append((ccd_id, online_physical))
+
+        # If CCD1 disappeared from topology (parked), add it manually
+        if len(all_cores) < 2:
+            # Check if CPU 6 exists but is offline (parked CCD1)
+            try:
+                with open("/sys/devices/system/cpu/cpu6/online") as f:
+                    if f.read().strip() == "0":
+                        # CCD1 physical cores = CPUs 6-11
+                        all_cores.append((1, [6, 7, 8, 9, 10, 11]))
+            except:
+                pass
 
         total_cores = sum(len(cores) for _, cores in all_cores)
+        if total_cores == 0:
+            self.benching = False
+            self.bench_btn.set_label("⚡ Run CCD Benchmark")
+            self.bench_btn.set_sensitive(True)
+            self.bench_progress.set_visible(False)
+            self.bench_label.set_markup("<span color='#f7768e'>No cores available for benchmark</span>")
+            return
+
         cores_done = [0]
+        all_results = {}
 
-        def bench_next(ccd_idx):
-            if ccd_idx >= len(all_cores):
-                # Done
-                self.benching = False
-                self.bench_btn.set_label("⚡ CCD-Benchmark testen")
-                self.bench_btn.set_sensitive(True)
-                self.bench_progress.set_visible(False)
-                self._show_bench(all_results)
-                return
-
-            ccd_id, physical = all_cores[ccd_idx]
-
-            def run():
+        def run_benchmark():
+            """Run benchmark in background thread — updates UI via GLib.idle_add"""
+            for ccd_id, physical in all_cores:
                 results = {}
                 for i, cpu in enumerate(physical):
-                    # Update UI: which core is being tested
+                    # Update UI before each core
                     GLib.idle_add(lambda c=cpu, ccd=ccd_id, i=i, n=len(physical): self.bench_label.set_markup(
-                        f"<span color='#7aa2f7' weight='bold'>📊 Benchmark: CCD{ccd_id} — Kern {i+1}/{n} (CPU {c})</span>\n"
-                        f"<span color='#565f89'>{cores_done[0]}/{total_cores} Kerne getestet</span>"))
+                        f"<span color='#7aa2f7' weight='bold'>📊 Benchmark: CCD{ccd_id} — "
+                        f"Core {i+1}/{n} (CPU {c})</span>\n"
+                        f"<span color='#565f89'>{cores_done[0]}/{total_cores} cores tested</span>"))
                     GLib.idle_add(lambda: self.bench_progress.set_fraction(cores_done[0] / total_cores))
 
                     try:
@@ -806,7 +1143,6 @@ class CommandCenter(Adw.ApplicationWindow):
                             capture_output=True, text=True, timeout=15)
                         last = r.stdout.strip().split("\n")[-1] if r.stdout else ""
                         parts = last.split()
-                        # openssl returns values like "1206657.02k" — strip the 'k'
                         raw = parts[5] if len(parts) >= 6 else "0"
                         val_str = raw.rstrip("k").rstrip("K")
                         try:
@@ -818,14 +1154,22 @@ class CommandCenter(Adw.ApplicationWindow):
                     cores_done[0] += 1
 
                 all_results[ccd_id] = results
-                GLib.idle_add(lambda: bench_next(ccd_idx + 1))
 
-            threading.Thread(target=run, daemon=True).start()
+            # Done — update UI
+            GLib.idle_add(lambda: self.bench_progress.set_fraction(1.0))
+            GLib.idle_add(lambda: self._finish_benchmark(all_results))
 
-        bench_next(0)
+        threading.Thread(target=run_benchmark, daemon=True).start()
+
+    def _finish_benchmark(self, all_results):
+        self.benching = False
+        self.bench_btn.set_label("⚡ Run CCD Benchmark")
+        self.bench_btn.set_sensitive(True)
+        self.bench_progress.set_visible(False)
+        self._show_bench(all_results)
 
     def _show_bench(self, all_results):
-        text = "<span color='#7aa2f7' weight='bold'>📊 CCD Benchmark Ergebnis</span>\n\n"
+        text = "<span color='#7aa2f7' weight='bold'>📊 CCD Benchmark Results</span>\n\n"
         best_ccd = None
         best_avg = 0
         for ccd_id in sorted(all_results.keys()):
@@ -846,7 +1190,7 @@ class CommandCenter(Adw.ApplicationWindow):
                 text += f"<span color='{color}'>{marker}CCD{ccd_id}: {bar} {avg:.0f} kB/s</span>\n"
 
         if best_ccd is not None:
-            text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} ist schneller → für Gaming behalten!</span>"
+            text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is faster → keep for gaming!</span>"
 
         self.bench_label.set_markup(text)
         self.best_ccd = best_ccd

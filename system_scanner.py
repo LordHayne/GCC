@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""Gaming Command Center — System Scanner for Setup Wizard"""
+import subprocess, os, re, shutil
+
+class SystemCheck:
+    """Single system check with status + fix."""
+
+    def __init__(self, name, check_fn, fix_fn=None, info_only=False):
+        self.name = name
+        self.check_fn = check_fn
+        self.fix_fn = fix_fn
+        self.info_only = info_only
+        self.status = None  # "ok", "warning", "info", "fixing"
+        self.message = ""
+        self.fix_message = ""
+        self.run()
+
+    def run(self):
+        try:
+            self.status, self.message, self.fix_message = self.check_fn()
+        except Exception as e:
+            self.status = "info"
+            self.message = f"Check error: {e}"
+            self.fix_message = ""
+
+    def apply_fix(self):
+        if not self.fix_fn or self.info_only:
+            return False
+        try:
+            return self.fix_fn()
+        except:
+            return False
+
+
+def scan_system():
+    """Scans the system and returns list of SystemCheck objects."""
+    checks = []
+
+    # === Gaming Tools ===
+
+    # 1. GameMode installed?
+    def check_gamemode():
+        if shutil.which("game-performance"):
+            return "ok", "GameMode installed ✅", ""
+        return "warning", "GameMode NOT installed", "pacman -S gamemode"
+    checks.append(SystemCheck("GameMode", check_gamemode))
+
+    # 2. gamescope installed?
+    def check_gamescope():
+        if shutil.which("gamescope"):
+            return "ok", "gamescope installed ✅", ""
+        return "warning", "gamescope NOT installed", "pacman -S gamescope"
+    checks.append(SystemCheck("gamescope", check_gamescope))
+
+    # 3. GE-Proton installed?
+    def check_geproton():
+        proton_dir = os.path.expanduser("~/.steam/root/compatibilitytools.d")
+        if os.path.exists(proton_dir):
+            versions = os.listdir(proton_dir)
+            ge_versions = [v for v in versions if "GE-Proton" in v]
+            if ge_versions:
+                return "ok", f"GE-Proton installed ({ge_versions[0]}) ✅", ""
+            return "warning", "GE-Proton NOT installed", "Download GE-Proton from GitHub and extract to ~/.steam/root/compatibilitytools.d/"
+        return "warning", "GE-Proton NOT installed", "Download GE-Proton from GitHub"
+    checks.append(SystemCheck("GE-Proton", check_geproton))
+
+    # === CPU ===
+
+    # 4. CPU Governor
+    def check_governor():
+        try:
+            with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") as f:
+                gov = f.read().strip()
+            if gov == "powersave":
+                return "ok", "CPU Governor: powersave ✅ (optimal for idle)", ""
+            elif gov == "performance":
+                return "warning", "CPU Governor: performance (should be powersave)", "Set to powersave — GameMode will switch to performance when gaming"
+            return "info", f"CPU Governor: {gov}", ""
+        except:
+            return "info", "Could not read governor", ""
+    checks.append(SystemCheck("CPU Governor", check_governor))
+
+    # 5. CCD count + Game Mode
+    def check_ccd():
+        try:
+            r = subprocess.run(["lscpu", "-e=CPU,CACHE"], capture_output=True, text=True, timeout=3)
+            lines = r.stdout.strip().split("\n")[1:]
+            cache_ids = {}
+            for line in lines:
+                parts = line.split()
+                if len(parts) >= 2:
+                    cpu = int(parts[0])
+                    caches = parts[1].split(":")
+                    if caches[0] == "-":
+                        continue
+                    l3_id = caches[-1] if caches else ""
+                    if l3_id and l3_id != "-":
+                        cache_ids.setdefault(int(l3_id), []).append(cpu)
+
+            total_cpus = len(lines)
+            num_cache_groups = len(cache_ids)
+
+            if total_cpus >= 20 and num_cache_groups <= 2:
+                ccd_count = 2
+            elif total_cpus >= 12 and num_cache_groups >= 2:
+                ccd_count = 2
+            elif num_cache_groups >= 3:
+                ccd_count = 2
+            else:
+                ccd_count = 1
+
+            if ccd_count >= 2:
+                any_offline = False
+                for cpu in [6, 7, 8, 9, 10, 11, 18, 19, 20, 21, 22, 23]:
+                    try:
+                        with open(f"/sys/devices/system/cpu/cpu{cpu}/online") as f:
+                            if f.read().strip() == "0":
+                                any_offline = True
+                                break
+                    except:
+                        pass
+                if any_offline:
+                    return "ok", f"{ccd_count} CCDs detected — Game Mode ACTIVE ✅", ""
+                return "warning", f"{ccd_count} CCDs detected — Game Mode not active", "Park CCD1 for better gaming performance (better CCD gets exclusive access)"
+            return "info", f"{ccd_count} CCD — Game Mode not available (requires 2+ CCDs)", ""
+        except:
+            return "info", "Could not detect CCD count", ""
+    checks.append(SystemCheck("CCD / Game Mode", check_ccd))
+
+    # === GPU ===
+
+    # 6. NVIDIA driver
+    def check_nvidia():
+        try:
+            r = subprocess.run(["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+                              capture_output=True, text=True, timeout=3)
+            ver = r.stdout.strip()
+            if ver:
+                return "ok", f"NVIDIA driver {ver} ✅", ""
+            return "warning", "NVIDIA driver not detected", ""
+        except:
+            return "info", "Could not check NVIDIA driver", ""
+    checks.append(SystemCheck("NVIDIA Driver", check_nvidia))
+
+    # 7. NVIDIA P-State (P8 idle bug)
+    def check_pstate():
+        try:
+            r = subprocess.run(["nvidia-smi", "--query-gpu=pstate,clocks.gr", "--format=csv,noheader"],
+                              capture_output=True, text=True, timeout=3)
+            parts = r.stdout.strip().split(", ")
+            if len(parts) >= 2:
+                pstate = parts[0]
+                clock = parts[1]
+                if pstate == "P8" and "555" in clock:
+                    return "warning", f"GPU stuck at {pstate} ({clock}) — known NVIDIA bug", "nvidia-smi -lgc 1815,1815 (fix GPU clock)"
+                return "ok", f"GPU P-State: {pstate} ({clock}) ✅", ""
+        except:
+            pass
+        return "info", "Could not check GPU P-State", ""
+    checks.append(SystemCheck("GPU P-State", check_pstate))
+
+    # 8. ReBAR
+    def check_rebar():
+        try:
+            r = subprocess.run(["nvidia-smi", "-q", "-d", "MEMORY"],
+                              capture_output=True, text=True, timeout=3)
+            if "BAR1 Memory" in r.stdout:
+                m = re.search(r'BAR1 Memory.*?Total.*??(\d+)\s*MiB', r.stdout, re.DOTALL)
+                if m:
+                    bar = int(m.group(1))
+                    if bar >= 256:
+                        if bar <= 256:
+                            return "info", f"ReBAR: {bar}MB (Hardware limit RTX 20-series, no VBIOS fix exists)", ""
+                        return "ok", f"ReBAR: {bar}MB ✅", ""
+            r2 = subprocess.run(["nvidia-smi", "-q"], capture_output=True, text=True, timeout=3)
+            if "BAR1" in r2.stdout:
+                for line in r2.stdout.split("\n"):
+                    if "BAR1" in line and "Total" in line:
+                        m = re.search(r'(\d+)\s*MiB', line)
+                        if m:
+                            bar = int(m.group(1))
+                            if bar <= 256:
+                                return "info", f"ReBAR: {bar}MB (Hardware limit RTX 20-series, no fix)", ""
+                            return "ok", f"ReBAR: {bar}MB ✅", ""
+            return "info", "ReBAR status unclear", "Enable 'Above 4G Decoding' + 'Re-Size BAR Support' in BIOS"
+        except:
+            return "info", "Could not check ReBAR", ""
+    checks.append(SystemCheck("ReBAR", check_rebar, info_only=True))
+
+    # 9. Coolbits (OC support)
+    def check_coolbits():
+        try:
+            r = subprocess.run(["nvidia-settings", "-q", "GPUGraphicsClockOffsetAllPerformanceLevels"],
+                              capture_output=True, text=True, timeout=3)
+            if "range" in r.stdout.lower() or ": 0" in r.stdout:
+                return "ok", "Coolbits enabled — GPU overclocking available ✅", ""
+            return "warning", "Coolbits NOT enabled", "nvidia-xconfig --cool-bits=28 or edit Xorg config"
+        except:
+            return "info", "Could not check Coolbits", ""
+    checks.append(SystemCheck("Coolbits / GPU-OC", check_coolbits))
+
+    # === System ===
+
+    # 10. NVreg_PreserveVideoMemoryAllocations
+    def check_nvreg():
+        path = "/etc/modprobe.d/nvidia.conf"
+        if os.path.exists(path):
+            with open(path) as f:
+                content = f.read()
+            if "NVreg_PreserveVideoMemoryAllocations=1" in content:
+                return "ok", "NVreg_PreserveVideoMemoryAllocations enabled ✅", ""
+            return "warning", "NVreg_PreserveVideoMemoryAllocations missing", "Add 'options nvidia NVreg_PreserveVideoMemoryAllocations=1' to /etc/modprobe.d/nvidia.conf"
+        return "warning", "/etc/modprobe.d/nvidia.conf missing", "Create with 'options nvidia NVreg_PreserveVideoMemoryAllocations=1'"
+    checks.append(SystemCheck("NVIDIA Modprobe", check_nvreg))
+
+    # 11. Wayland or X11?
+    def check_session():
+        wayland = os.environ.get("WAYLAND_DISPLAY", "")
+        x11 = os.environ.get("DISPLAY", "")
+        if wayland:
+            return "ok", f"Wayland active ({wayland}) ✅", ""
+        elif x11:
+            return "info", f"X11 active ({x11})", "Wayland is recommended for NVIDIA gaming"
+        return "info", "Session type unclear", ""
+    checks.append(SystemCheck("Display Session", check_session))
+
+    # 12. gamemode.ini
+    def check_gamemode_ini():
+        path = os.path.expanduser("~/.config/gamemode.ini")
+        if os.path.exists(path):
+            with open(path) as f:
+                content = f.read()
+            if "park_cores" in content:
+                return "ok", "gamemode.ini with CCD config present ✅", ""
+            return "info", "gamemode.ini exists but without CCD config", "Add park_cores + pin_cores for automatic CCD parking when gaming"
+        return "warning", "gamemode.ini missing", "Create with park_cores + pin_cores for automatic CCD parking when gaming"
+    checks.append(SystemCheck("GameMode Config", check_gamemode_ini))
+
+    # 13. SATA Link Power
+    def check_sata():
+        try:
+            for i in range(4):
+                path = f"/sys/class/scsi_host/host{i}/link_power_management_policy"
+                if os.path.exists(path):
+                    with open(path) as f:
+                        policy = f.read().strip()
+                    if policy == "max_performance":
+                        return "warning", f"SATA Link Power: {policy} (wastes power)", "Set to med_power_with_dipm"
+                    return "ok", f"SATA Link Power: {policy} ✅", ""
+            return "info", "No SATA controllers found", ""
+        except:
+            return "info", "Could not check SATA", ""
+    checks.append(SystemCheck("SATA Link Power", check_sata))
+
+    # 14. Audio Power Save
+    def check_audio():
+        path = "/sys/module/snd_hda_intel/parameters/power_save"
+        if os.path.exists(path):
+            with open(path) as f:
+                val = f.read().strip()
+            if val == "1":
+                return "ok", "Audio Power Save enabled ✅", ""
+            return "warning", f"Audio Power Save: {val} (should be 1)", "echo 1 > /sys/module/snd_hda_intel/parameters/power_save"
+        return "info", "Audio Power Save not available", ""
+    checks.append(SystemCheck("Audio Power Save", check_audio))
+
+    # 15. Monitor refresh rate
+    def check_refresh():
+        try:
+            r = subprocess.run(["xrandr" if os.environ.get("DISPLAY") else "wlr-randr"],
+                              capture_output=True, text=True, timeout=3)
+            if "144" in r.stdout or "120" in r.stdout or "165" in r.stdout:
+                return "ok", "High-refresh monitor detected ✅", ""
+            if r.stdout:
+                return "info", "Monitor detected", ""
+        except:
+            pass
+        return "info", "Could not check monitor", ""
+    checks.append(SystemCheck("Monitor", check_refresh))
+
+    return checks
+
+
+if __name__ == "__main__":
+    print("=== Gaming Command Center — System Scan ===\n")
+    checks = scan_system()
+    ok = sum(1 for c in checks if c.status == "ok")
+    warn = sum(1 for c in checks if c.status == "warning")
+    info = sum(1 for c in checks if c.status == "info")
+    for c in checks:
+        icon = {"ok": "✅", "warning": "⚠️", "info": "ℹ️"}[c.status]
+        print(f"{icon} {c.name}: {c.message}")
+        if c.fix_message and c.status == "warning":
+            print(f"   → Fix: {c.fix_message}")
+    print(f"\n=== Summary: {ok} OK, {warn} Warnings, {info} Info ===")
