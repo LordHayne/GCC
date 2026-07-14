@@ -38,12 +38,15 @@ ALLOWED_SESSION = {"wayland", "x11"}
 
 
 class Fix:
-    def __init__(self, ftype, value="", path="", content="", action=""):
+    def __init__(self, ftype, value="", path="", content="", action="", verified=False):
         self.type = ftype
         self.value = value      # info text / launch option string
         self.path = path        # file fix: target path
         self.content = content  # file fix: file contents
         self.action = action    # tool_action: which action
+        # True only when a human has tested that this fix solves the issue.
+        # Everything from a fresh PR starts unverified so the UI can flag it.
+        self.verified = verified
 
     @property
     def is_applicable(self):
@@ -89,14 +92,15 @@ def _parse_fix(raw):
     ftype = raw.get("type")
     if ftype not in ALLOWED_FIX_TYPES:
         return None
+    verified = raw.get("verified") is True
 
     if ftype == "info":
         text = _clean_str(raw.get("value", ""))
-        return Fix("info", value=text) if text else None
+        return Fix("info", value=text, verified=verified) if text else None
 
     if ftype == "launch_option":
         val = _clean_str(raw.get("value", ""))
-        return Fix("launch_option", value=val) if val else None
+        return Fix("launch_option", value=val, verified=verified) if val else None
 
     if ftype == "file":
         path = str(raw.get("path", "")).strip()
@@ -110,13 +114,13 @@ def _parse_fix(raw):
         real = os.path.normpath(expanded)
         if not real.startswith(home + os.sep):
             return None
-        return Fix("file", path=path, content=content)
+        return Fix("file", path=path, content=content, verified=verified)
 
     if ftype == "tool_action":
         action = str(raw.get("action", "")).strip()
         if action not in ALLOWED_TOOL_ACTIONS:
             return None
-        return Fix("tool_action", action=action)
+        return Fix("tool_action", action=action, verified=verified)
 
     return None
 

@@ -618,16 +618,17 @@ class GamesPage(Gtk.Box):
                         "supported for now.")
             return
 
-        detected = steam_scanner.detect_appids()  # {appid: name|None}
+        # Only games actually installed (appmanifest present) — a fix for a game
+        # the user doesn't have installed is just noise. Steam's own tooling
+        # (Proton, runtimes, redistributables) is filtered out.
+        installed = steam_scanner.installed_appids(root)
         gpu, session = self._gpu_vendor(), self._session()
 
-        # Show a game if we have fixes for it, or it's a real installed game.
         rows = []
-        for appid, name in detected.items():
-            game = self.db.get(appid)
-            installed_name = name and not self._is_steam_tool(name)
-            if game is None and not installed_name:
+        for appid, name in installed.items():
+            if self._is_steam_tool(name):
                 continue
+            game = self.db.get(appid)
             disp_name = (game.name if game else name) or f"App {appid}"
             issues = [i for i in (game.issues if game else [])
                       if i.matches_system(gpu, session)]
@@ -638,12 +639,12 @@ class GamesPage(Gtk.Box):
 
         with_fixes = sum(1 for r in rows if r[2])
         self.subtitle.set_text(
-            f"{len(rows)} games detected · {with_fixes} with known fixes · "
+            f"{len(rows)} installed games · {with_fixes} with known fixes · "
             f"{len(self.db)} games in database")
 
         if not rows:
-            self._empty("No matching games found. Play a game once so Steam "
-                        "knows it, then rescan.")
+            self._empty("No installed Steam games found. Install a game, then "
+                        "rescan.")
             return
 
         for appid, name, issues, in_db in rows:
@@ -695,6 +696,16 @@ class GamesPage(Gtk.Box):
         sym.set_wrap(True)
         sym.set_hexpand(True)
         top.append(sym)
+        # Trust badge: a green check for tested fixes, an amber flag otherwise.
+        badge = Gtk.Label()
+        if issue.fix.verified:
+            badge.set_label("✓ Verified")
+            badge.add_css_class("badge-verified")
+        else:
+            badge.set_label("untested")
+            badge.add_css_class("badge-untested")
+        badge.set_valign(Gtk.Align.START)
+        top.append(badge)
         row.append(top)
 
         if issue.cause:
@@ -985,6 +996,14 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         .issue-symptom { color: #e0af68; font-weight: bold; }
         .issue-cause { color: #565f89; font-size: 12px; }
+        .badge-verified {
+            background: rgba(158,206,106,0.15); color: #9ece6a;
+            border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: bold;
+        }
+        .badge-untested {
+            background: rgba(224,175,104,0.12); color: #e0af68;
+            border-radius: 6px; padding: 1px 8px; font-size: 11px;
+        }
         .issue-info {
             color: #9aa5ce; font-family: monospace; font-size: 12px;
             margin-top: 4px;

@@ -30,6 +30,14 @@
 # would make it an attack vector. If a fix truly needs a command, add it
 # as `info` so the user reads and runs it themselves.
 #
+# VERIFIED vs UNTESTED
+# --------------------
+# Add `verified: true` inside a `fix:` only if you have personally tested that
+# it solves the issue. Everything else shows up in the app as "untested —
+# community suggestion" so users know what they're applying. Don't mark a fix
+# verified just because it sounds right; the whole point is that a green
+# "Verified" badge means someone actually confirmed it.
+#
 # WHEN A FIX APPLIES (optional)
 # -----------------------------
 # Add a `when:` block to show an issue only on matching setups:
@@ -43,6 +51,16 @@ games:
     steam_id: 2357570
     aliases: ["overwatch", "ow2"]
     issues:
+      - symptom: "Stuttering / frame hitches during gameplay"
+        cause: "NVIDIA host-visible VRAM (HVV) upload stutter in vkd3d-proton.
+                Disabling HVV uploads removes the hitching. Verified on a
+                Ryzen 9 3900X + NVIDIA system — fixed the stutter completely."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "VKD3D_CONFIG=no_upload_hvv %command%"
+          verified: true
+
       - symptom: "GPU stays in P8 / low clocks (~555 MHz) in menus and in-game"
         cause: "NVIDIA power-state bug: the GPU never leaves its idle P-state
                 under the game's light-in-menu load."
@@ -63,16 +81,6 @@ games:
                   BIOS. RTX 20-series tops out at 256 MB regardless, so this
                   only fully helps on RTX 30-series and newer."
 
-  - name: "Hydroneer"
-    steam_id: 1106840
-    issues:
-      - symptom: "Mouse can't turn a full 360°"
-        cause: "Unreal Engine + NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
-
   - name: "Cyberpunk 2077"
     steam_id: 1091500
     aliases: ["cyberpunk"]
@@ -83,14 +91,6 @@ games:
         fix:
           type: launch_option
           value: "gamemoderun %command% --launcher-skip"
-
-      - symptom: "Mouse locks up / can't turn 360°, camera snaps back"
-        cause: "NVIDIA + Wayland relative-motion grab bug; the compositor
-                clamps pointer motion so fast flicks get dropped."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command% --launcher-skip"
 
       - symptom: "Game won't start or mods fail after installing Amethyst / .NET mods"
         cause: "Modding frameworks need native winmm and version DLL overrides
@@ -159,13 +159,6 @@ games:
           type: launch_option
           value: "%command% --skip-launcher"
 
-      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
-        cause: "NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command% --skip-launcher"
-
   - name: "Helldivers 2"
     steam_id: 553850
     aliases: ["helldivers", "hd2"]
@@ -207,13 +200,6 @@ games:
           type: info
           value: "Use GE-Proton10-34 or newer for best EOS compatibility.
                   If server browser fails, connect via direct IP instead."
-
-      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
-        cause: "Unreal Engine 5 + NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
 
   - name: "Counter-Strike 2"
     steam_id: 730
@@ -351,13 +337,6 @@ games:
           type: launch_option
           value: "SDL_VIDEODRIVER=x11 %command%"
 
-      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
-        cause: "NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
-
       - symptom: "Red Dead Online multiplayer doesn't work"
         cause: "RDO has no anti-cheat support for Linux; single-player
                 works fine but online is unsupported."
@@ -415,13 +394,6 @@ games:
           value: "Play in borderless windowed mode instead of fullscreen
                   exclusive. This is set in the in-game graphics options."
 
-      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
-        cause: "Unreal Engine + NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
-
   - name: "The Witcher 3: Wild Hunt"
     steam_id: 292030
     aliases: ["witcher 3", "tw3"]
@@ -466,13 +438,6 @@ games:
                   WINEDLLOVERRIDES=\"dinput8=n,b\" %command%
                   Install .NET via protontricks if mods require it."
 
-      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
-        cause: "Creation Engine + NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
-
   - name: "The Elder Scrolls V: Skyrim Special Edition"
     steam_id: 489830
     aliases: ["skyrim", "skyrim se", "sse"]
@@ -510,13 +475,6 @@ games:
         fix:
           type: launch_option
           value: "MESA_SHADER_CACHE_MAX_SIZE=10G gamemoderun %command%"
-
-      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
-        cause: "NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
 
   - name: "Dark Souls III"
     steam_id: 374320
@@ -615,13 +573,6 @@ games:
           value: "Use GE-Proton10-34 or Proton Experimental. If crashes
                   persist, try Proton 9.0-4 which is reported as more
                   stable for this title."
-
-      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
-        cause: "NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
 
       - symptom: "Controller not detected"
         cause: "Proton's SDL controller handling doesn't detect some
