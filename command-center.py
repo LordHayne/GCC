@@ -149,6 +149,12 @@ class CCDController:
         return (True, success_msg) if ok else (False, note)
 
     @staticmethod
+    def set_governor(name):
+        """Force a cpufreq governor (benchmark uses this). Password-free."""
+        ok, _ = CCDController._run(["set-governor", name], "DONE_SETGOVERNOR", timeout=30)
+        return ok
+
+    @staticmethod
     def etc_helper(action, expect, success_msg):
         """Run a persistent /etc action. Prompts for admin authentication, and
         the helper reports where it put the backup — surface that to the user."""
@@ -647,6 +653,30 @@ class CommandCenter(Adw.ApplicationWindow):
             border: 1px solid rgba(255,255,255,0.06);
         }
 
+        /* === Benchmark === */
+        .bench-group {
+            background: #1e1f2e; border-radius: 10px; padding: 10px 12px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .bench-ccd-name { color: #c0caf5; font-weight: bold; font-size: 14px; }
+        .bench-ccd-avg { color: #c0caf5; }
+        .bench-badge { color: #1a1b26; }
+        .bench-badge-best {
+            background: #e0af68; color: #1a1b26; font-weight: bold;
+            border-radius: 6px; padding: 1px 8px; font-size: 11px;
+        }
+        .bench-cpu-label { color: #565f89; }
+        .bench-cpu-active { color: #7aa2f7; font-weight: bold; }
+        .bench-mhz { color: #c0caf5; font-family: monospace; }
+        levelbar.bench-bar trough {
+            background: #14151f; border-radius: 5px; min-height: 14px;
+            border: 1px solid rgba(255,255,255,0.04);
+        }
+        levelbar.bench-bar block.filled {
+            background: linear-gradient(to right, #7aa2f7, #9ece6a);
+            border-radius: 5px; min-height: 14px;
+        }
+
         /* === Sliders === */
         scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
         scale highlight { background: #7aa2f7; border-radius: 3px; }
@@ -1042,24 +1072,102 @@ class CommandCenter(Adw.ApplicationWindow):
         self.bench_btn.connect("clicked", self.on_benchmark)
         content.append(self.bench_btn)
 
-        # Progress bar
+        # One-line status while running (which core, governor note)
+        self.bench_status = Gtk.Label(label="")
+        self.bench_status.set_halign(Gtk.Align.START)
+        self.bench_status.set_xalign(0)
+        self.bench_status.set_wrap(True)
+        self.bench_status.set_margin_top(8)
+        content.append(self.bench_status)
+
+        # Overall progress
         self.bench_progress = Gtk.ProgressBar()
-        self.bench_progress.set_margin_top(8)
+        self.bench_progress.set_margin_top(6)
         self.bench_progress.set_visible(False)
         content.append(self.bench_progress)
 
-        # Results label
-        self.bench_label = Gtk.Label(label="")
-        self.bench_label.set_wrap(True)
-        self.bench_label.set_halign(Gtk.Align.START)
-        self.bench_label.set_xalign(0)
-        self.bench_label.set_margin_top(8)
-        content.append(self.bench_label)
+        # Live per-core bars, grouped by CCD, built on demand
+        self.bench_results = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.bench_results.set_margin_top(12)
+        content.append(self.bench_results)
+        self.bench_rows = {}      # cpu -> {"bar", "val", "row"}
+        self.bench_ccd_hdr = {}   # ccd_id -> {"avg", "badge"}
+
+        # Verdict line under the bars
+        self.bench_verdict = Gtk.Label(label="")
+        self.bench_verdict.set_halign(Gtk.Align.START)
+        self.bench_verdict.set_xalign(0)
+        self.bench_verdict.set_wrap(True)
+        self.bench_verdict.set_margin_top(4)
+        content.append(self.bench_verdict)
 
         scroll.set_child(content)
         page.append(scroll)
 
         return page
+
+    def _build_bench_rows(self):
+        """Lay out one bar per physical core, grouped by CCD, ready to fill in
+        live. Rebuilt each run since the online core set can change."""
+        child = self.bench_results.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.bench_results.remove(child)
+            child = nxt
+        self.bench_rows = {}
+        self.bench_ccd_hdr = {}
+
+        for ccd_id in self.topo.get_all_ccd_ids():
+            cores = [c for c in self.topo.get_physical_cores(ccd_id)
+                     if self.topo.is_cpu_online(c)]
+            if not cores:
+                continue
+
+            group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            group.add_css_class("bench-group")
+
+            hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            name = Gtk.Label(label=f"CCD{ccd_id}")
+            name.add_css_class("bench-ccd-name")
+            name.set_xalign(0)
+            hdr.append(name)
+            badge = Gtk.Label(label="")
+            badge.add_css_class("bench-badge")
+            hdr.append(badge)
+            spacer = Gtk.Box(); spacer.set_hexpand(True); hdr.append(spacer)
+            avg = Gtk.Label(label="")
+            avg.add_css_class("bench-ccd-avg")
+            hdr.append(avg)
+            group.append(hdr)
+            self.bench_ccd_hdr[ccd_id] = {"avg": avg, "badge": badge}
+
+            for cpu in cores:
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                lbl = Gtk.Label(label=f"CPU {cpu}")
+                lbl.set_size_request(56, -1)
+                lbl.set_xalign(0)
+                lbl.add_css_class("bench-cpu-label")
+                row.append(lbl)
+
+                bar = Gtk.LevelBar()
+                bar.set_hexpand(True)
+                bar.set_valign(Gtk.Align.CENTER)
+                bar.set_min_value(0.0)
+                bar.set_max_value(1.0)
+                bar.set_value(0.0)
+                bar.add_css_class("bench-bar")
+                row.append(bar)
+
+                val = Gtk.Label(label="— MHz")
+                val.set_size_request(90, -1)
+                val.set_xalign(1)
+                val.add_css_class("bench-mhz")
+                row.append(val)
+
+                group.append(row)
+                self.bench_rows[cpu] = {"bar": bar, "val": val, "label": lbl}
+
+            self.bench_results.append(group)
 
     # ============================================================
     # Settings Page
@@ -1592,29 +1700,58 @@ class CommandCenter(Adw.ApplicationWindow):
         threading.Thread(target=apply_in_thread, daemon=True).start()
 
     # ============================================================
-    # CCD Benchmark
+    # CCD Benchmark — per-core sustained boost clock
     # ============================================================
+    #
+    # The old benchmark timed `openssl speed aes-256-cbc`, which runs on the
+    # dedicated AES-NI unit — its throughput barely tracks silicon quality, so
+    # it could not tell a good CCD from a bad one. The silicon lottery is about
+    # which cores hold the highest boost clock under load, so measure that
+    # directly: pin a busy loop to one core and sample its frequency.
+    #
+    # This is only meaningful under the `performance` governor. Under powersave
+    # (amd-pstate-epp) the boost a core reaches is governed by power/EPP heuristics,
+    # not silicon, and the result flips between runs — so the benchmark forces
+    # `performance` for the duration and restores the previous governor after.
+
+    def _measure_core_boost(self, cpu, on_sample=None, load_s=1.4, settle=0.4):
+        """Median held frequency (MHz) of one core under a single-thread load.
+        on_sample(freq) fires per reading so the UI can animate the bar live."""
+        load = subprocess.Popen(
+            ["taskset", "-c", str(cpu), "sh", "-c", "while :; do :; done"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(settle)  # let the core ramp to its boost clock first
+            samples = []
+            end = time.monotonic() + load_s
+            while time.monotonic() < end:
+                f = self.topo.get_cpu_freq(cpu)
+                if f > 0:
+                    samples.append(f)
+                    if on_sample:
+                        on_sample(f)
+                time.sleep(0.05)
+        finally:
+            load.terminate()
+            load.wait()
+        if not samples:
+            return 0
+        samples.sort()
+        return samples[len(samples) // 2]  # median resists brief dips
+
     def on_benchmark(self, btn):
         if self.benching:
             return
-        self.benching = True
-        self.bench_btn.set_label("Benchmark running...")
-        self.bench_btn.set_sensitive(False)
-        self.bench_progress.set_visible(True)
-        self.bench_progress.set_fraction(0.0)
-        self.bench_label.set_markup(
-            "<span color='#7aa2f7' weight='bold'>Benchmark starting...</span>\n"
-            "<span color='#565f89'>Testing each core individually (~25 seconds)</span>")
 
         def abort(message):
             self.benching = False
             self.bench_btn.set_label("Run CCD Benchmark")
             self.bench_btn.set_sensitive(True)
             self.bench_progress.set_visible(False)
-            self.bench_label.set_markup(f"<span color='#f7768e'>{message}</span>")
+            self.bench_status.set_markup(f"<span color='#f7768e'>{message}</span>")
 
-        # A parked core cannot be benchmarked — taskset would fail and the CCD
-        # would score 0, which used to read as "the other CCD is 100% faster".
+        # A parked core cannot be benchmarked — taskset would land on an offline
+        # CPU and read 0, so the parked CCD would look infinitely slow.
         if self.topo.game_mode_active():
             abort("Cores are parked — disable Game Mode first, "
                   "otherwise the parked CCD cannot be measured.")
@@ -1627,120 +1764,157 @@ class CommandCenter(Adw.ApplicationWindow):
                       if self.topo.is_cpu_online(c)]
             if online:
                 all_cores.append((ccd_id, online))
-
         total_cores = sum(len(cores) for _, cores in all_cores)
         if total_cores == 0:
             abort("No cores available for benchmark")
             return
 
+        self.benching = True
+        self.bench_btn.set_label("Benchmark running...")
+        self.bench_btn.set_sensitive(False)
+        self.bench_verdict.set_label("")
+        self.bench_progress.set_visible(True)
+        self.bench_progress.set_fraction(0.0)
+        self._build_bench_rows()
+
+        # Scale bars against the CPU's rated max boost.
+        try:
+            with open("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq") as f:
+                max_mhz = int(f.read()) // 1000
+        except OSError:
+            max_mhz = 5000
+        floor = int(max_mhz * 0.5)  # bars span 50%..100% so differences read clearly
+
+        def frac(mhz):
+            if mhz <= floor:
+                return 0.0
+            return min((mhz - floor) / (max_mhz - floor), 1.0)
+
         cores_done = [0]
         all_results = {}
 
         def run_benchmark():
-            """Run benchmark in background thread - updates UI via GLib.idle_add"""
-            for ccd_id, physical in all_cores:
-                results = {}
-                for i, cpu in enumerate(physical):
-                    GLib.idle_add(lambda c=cpu, ccd=ccd_id, i=i, n=len(physical):
-                        self.bench_label.set_markup(
-                            f"<span color='#7aa2f7' weight='bold'>Benchmark: CCD{ccd_id} - "
-                            f"Core {i+1}/{n} (CPU {c})</span>\n"
-                            f"<span color='#565f89'>{cores_done[0]}/{total_cores} cores tested</span>"))
-                    GLib.idle_add(lambda: self.bench_progress.set_fraction(
-                        cores_done[0] / total_cores))
+            prev_gov = self.topo.get_governor()
+            forced = False
+            if prev_gov != "performance":
+                forced = CCDController.set_governor("performance")
+                note = ("governor forced to performance for the test"
+                        if forced else
+                        "could not set performance governor — results may be unreliable")
+                GLib.idle_add(lambda: self.bench_status.set_markup(
+                    f"<span color='#565f89'>{note}</span>"))
+                time.sleep(0.3)
+            try:
+                for ccd_id, physical in all_cores:
+                    results = {}
+                    for cpu in physical:
+                        GLib.idle_add(self._bench_active_row, cpu, ccd_id,
+                                      cores_done[0], total_cores)
 
-                    try:
-                        r = subprocess.run(
-                            ["taskset", "-c", str(cpu), "openssl", "speed", "-elapsed",
-                             "-seconds", "2", "aes-256-cbc"],
-                            capture_output=True, text=True, timeout=15)
-                        last = r.stdout.strip().split("\n")[-1] if r.stdout else ""
-                        parts = last.split()
-                        raw = parts[5] if len(parts) >= 6 else "0"
-                        val_str = raw.rstrip("k").rstrip("K")
-                        try:
-                            results[cpu] = float(val_str)
-                        except:
-                            results[cpu] = 0.0
-                    except:
-                        results[cpu] = 0.0
-                    cores_done[0] += 1
+                        def on_sample(f, c=cpu):
+                            GLib.idle_add(self._bench_live, c, f, frac(f))
 
-                all_results[ccd_id] = results
+                        results[cpu] = self._measure_core_boost(cpu, on_sample=on_sample)
+                        cores_done[0] += 1
+                        GLib.idle_add(self._bench_final_row, cpu, results[cpu],
+                                      frac(results[cpu]))
+                        GLib.idle_add(lambda: self.bench_progress.set_fraction(
+                            cores_done[0] / total_cores))
+                    all_results[ccd_id] = results
+            finally:
+                # Always hand the governor back, even if a measurement threw.
+                if forced:
+                    CCDController.set_governor(prev_gov)
 
-            # Done
             GLib.idle_add(lambda: self.bench_progress.set_fraction(1.0))
-            GLib.idle_add(lambda: self._finish_benchmark(all_results))
+            GLib.idle_add(lambda: self._finish_benchmark(all_results, forced, prev_gov))
 
         threading.Thread(target=run_benchmark, daemon=True).start()
 
-    def _finish_benchmark(self, all_results):
+    # --- live row updates (all run on the GTK thread) ---
+
+    def _bench_active_row(self, cpu, ccd_id, done, total):
+        self.bench_status.set_markup(
+            f"<span color='#7aa2f7' weight='bold'>Measuring CCD{ccd_id}, CPU {cpu}</span>"
+            f"   <span color='#565f89'>{done}/{total} cores done</span>")
+        row = self.bench_rows.get(cpu)
+        if row:
+            row["label"].add_css_class("bench-cpu-active")
+        return False
+
+    def _bench_live(self, cpu, mhz, fraction):
+        row = self.bench_rows.get(cpu)
+        if row:
+            row["bar"].set_value(fraction)
+            row["val"].set_label(f"{mhz} MHz")
+        return False
+
+    def _bench_final_row(self, cpu, mhz, fraction):
+        row = self.bench_rows.get(cpu)
+        if row:
+            row["bar"].set_value(fraction)
+            row["val"].set_markup(f"<b>{mhz} MHz</b>")
+            row["label"].remove_css_class("bench-cpu-active")
+        return False
+
+    def _finish_benchmark(self, all_results, forced, prev_gov):
         self.benching = False
         self.bench_btn.set_label("Run CCD Benchmark")
         self.bench_btn.set_sensitive(True)
         self.bench_progress.set_visible(False)
-        self._show_bench(all_results)
+        self._show_bench(all_results, forced, prev_gov)
 
-    def _show_bench(self, all_results):
-        """Display benchmark results with clear comparison."""
-        # Calculate averages and find best
-        best_ccd = None
-        best_avg = 0
+    def _show_bench(self, all_results, forced=False, prev_gov=""):
+        """Fill in each CCD's average and the verdict once measuring is done."""
         ccd_avgs = {}
-
-        for ccd_id in sorted(all_results.keys()):
-            results = all_results[ccd_id]
-            if results:
-                avg = sum(results.values()) / len(results)
-                ccd_avgs[ccd_id] = avg
-                if avg > best_avg:
-                    best_avg = avg
-                    best_ccd = ccd_id
+        best_ccd, best_avg = None, 0
+        for ccd_id, results in all_results.items():
+            live = [v for v in results.values() if v > 0]
+            if not live:
+                continue
+            avg = sum(live) / len(live)
+            ccd_avgs[ccd_id] = avg
+            if avg > best_avg:
+                best_avg, best_ccd = avg, ccd_id
 
         if not ccd_avgs:
-            self.bench_label.set_markup(
+            self.bench_status.set_markup(
                 "<span color='#f7768e' weight='bold'>No results — benchmark failed</span>")
             return
 
-        # Build result text — show kB/s AND relative comparison
-        text = "<span color='#7aa2f7' weight='bold' size='14'>Benchmark Results</span>\n\n"
+        self.bench_status.set_markup(
+            "<span color='#9ece6a' weight='bold'>Benchmark complete</span>")
 
-        # Find max for bar scaling
-        max_avg = max(ccd_avgs.values()) if ccd_avgs else 1
+        for ccd_id, hdr in self.bench_ccd_hdr.items():
+            if ccd_id not in ccd_avgs:
+                continue
+            hdr["avg"].set_markup(
+                f"<span weight='bold'>{ccd_avgs[ccd_id]:.0f} MHz avg</span>")
+            if ccd_id == best_ccd and len(ccd_avgs) > 1:
+                hdr["badge"].set_label("BEST SILICON")
+                hdr["badge"].add_css_class("bench-badge-best")
 
-        for ccd_id in sorted(ccd_avgs.keys()):
-            avg = ccd_avgs[ccd_id]
-            is_best = ccd_id == best_ccd
-            color = "#e0af68" if is_best else "#c0caf5"
-            icon = "🏆" if is_best else "  "
+        if best_ccd is None:
+            return
+        parts = []
+        others = [v for k, v in ccd_avgs.items() if k != best_ccd]
+        if others and max(others) > 0:
+            diff = best_avg - max(others)
+            pct = diff / max(others) * 100
+            parts.append(f"<span color='#e0af68' weight='bold'>CCD{best_ccd} holds "
+                         f"{diff:.0f} MHz ({pct:.1f}%) more boost — the better silicon.</span>")
+        else:
+            parts.append(f"<span color='#e0af68' weight='bold'>CCD{best_ccd} is the "
+                         f"only measured CCD.</span>")
 
-            # Bar: 20 chars, proportional to max
-            bar_len = int((avg / max_avg) * 20) if max_avg > 0 else 0
-            bar = "█" * bar_len + "░" * (20 - bar_len)
+        # Feed the winner back into Game Mode, which parks everything else.
+        if len(ccd_avgs) > 1 and save_config({"keep_ccd": best_ccd}):
+            parked = ", ".join(f"CCD{c}" for c in self.topo.get_all_ccd_ids()
+                               if c != best_ccd)
+            parts.append(f"<span color='#9ece6a'>Game Mode will now keep CCD{best_ccd} "
+                         f"and park {parked}.</span>")
 
-            # Show as GB/s (more readable than kB/s)
-            gb_s = avg / 1000000
-            pct = (avg / max_avg) * 100 if max_avg > 0 else 0
-
-            text += f"<span color='{color}'>{icon} <b>CCD{ccd_id}</b>  {bar}  {gb_s:.2f} GB/s ({pct:.0f}%)</span>\n"
-
-        if best_ccd is not None:
-            others = [v for k, v in ccd_avgs.items() if k != best_ccd]
-            if others and max(others) > 0:
-                diff_pct = ((best_avg - max(others)) / max(others)) * 100
-                text += (f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is "
-                         f"{diff_pct:.1f}% faster</span>")
-            else:
-                text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is best</span>"
-
-            # Feed the result back into Game Mode: it parks everything except
-            # this CCD from now on, instead of always assuming CCD1 is the weak one.
-            if len(ccd_avgs) > 1 and save_config({"keep_ccd": best_ccd}):
-                parked = [c for c in self.topo.get_all_ccd_ids() if c != best_ccd]
-                text += (f"\n<span color='#9ece6a'>Game Mode will now keep CCD{best_ccd} "
-                         f"and park {', '.join(f'CCD{c}' for c in parked)}.</span>")
-
-        self.bench_label.set_markup(text)
+        self.bench_verdict.set_markup("\n".join(parts))
         self.best_ccd = best_ccd
 
 
