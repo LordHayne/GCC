@@ -681,6 +681,8 @@ class GamesPage(Gtk.Box):
         # (Proton, runtimes, redistributables) is filtered out.
         installed = steam_scanner.installed_appids(root)
         gpu, session = self._gpu_vendor(), self._session()
+        from topology import load_config
+        only_verified = load_config().get("only_verified", False)
 
         rows = []
         for appid, name in installed.items():
@@ -689,7 +691,8 @@ class GamesPage(Gtk.Box):
             game = self.db.get(appid)
             disp_name = (game.name if game else name) or f"App {appid}"
             issues = [i for i in (game.issues if game else [])
-                      if i.matches_system(gpu, session)]
+                      if i.matches_system(gpu, session)
+                      and (not only_verified or i.fix.verified)]
             rows.append((appid, disp_name, issues, game is not None))
 
         # Games with fixes first, then alphabetical.
@@ -900,6 +903,11 @@ class CommandCenter(Adw.ApplicationWindow):
         self._stop_monitor = threading.Event()
         self._oc_touched = False   # user is editing the OC controls
         self._syncing_oc = False   # we are writing them ourselves
+        from topology import load_config
+        try:
+            self._monitor_interval = float(load_config().get("monitor_interval", 1.5))
+        except (TypeError, ValueError):
+            self._monitor_interval = 1.5
 
         manager = Adw.StyleManager.get_default()
         manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
@@ -1765,35 +1773,121 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     # Settings Page
     # ============================================================
-    def _build_settings_page(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    APP_VERSION = "0.1.0"
+    GITHUB_URL = "https://github.com/LordHayne/GCC"
 
+    def _build_settings_page(self):
+        from topology import load_config
+        cfg = load_config()
+
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         page.append(self._page_header("SETTINGS"))
         page.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
-        # Placeholder
-        placeholder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        placeholder.set_valign(Gtk.Align.CENTER)
-        placeholder.set_halign(Gtk.Align.CENTER)
-        placeholder.set_vexpand(True)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_vexpand(True)
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(640)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_start(16); box.set_margin_end(16)
+        box.set_margin_top(14); box.set_margin_bottom(20)
 
-        icon = Gtk.Label(label="")
-        icon.set_markup("<span size='48000' color='#565f89'>\u2699</span>")
-        placeholder.append(icon)
+        # --- Monitoring interval ---
+        box.append(self._section_header("Monitoring"))
+        intervals = [("Fast (1 s)", 1.0), ("Normal (1.5 s)", 1.5),
+                     ("Relaxed (3 s)", 3.0), ("Battery (5 s)", 5.0)]
+        cur = float(cfg.get("monitor_interval", 1.5))
+        idx = min(range(len(intervals)), key=lambda i: abs(intervals[i][1] - cur))
+        row = self._settings_row("Refresh rate",
+                                 "How often live stats update. Slower = less CPU use.")
+        combo = Gtk.DropDown.new_from_strings([n for n, _ in intervals])
+        combo.set_selected(idx)
+        combo.set_valign(Gtk.Align.CENTER)
+        combo.connect("notify::selected", lambda d, _p:
+                      self._on_interval_changed(intervals[d.get_selected()][1]))
+        row.append(combo)
+        box.append(row)
 
-        coming = Gtk.Label(label="Coming soon")
-        coming.set_markup(
-            "<span size='16' weight='bold' color='#565f89'>Coming soon</span>")
-        placeholder.append(coming)
+        # --- Games / fixes ---
+        box.append(self._section_header("Game fixes"))
+        row = self._settings_row("Only show verified fixes",
+                                 "Hide untested community suggestions on the Games page.")
+        sw = Gtk.Switch()
+        sw.set_valign(Gtk.Align.CENTER)
+        sw.set_active(bool(cfg.get("only_verified", False)))
+        sw.connect("notify::active", lambda s, _p: self._on_only_verified(s.get_active()))
+        row.append(sw)
+        box.append(row)
 
-        desc = Gtk.Label(label="")
-        desc.set_markup(
-            "<span size='11' color='#565f89'>Settings will be available in a future update</span>")
-        placeholder.append(desc)
+        # --- CCD choice for Game Mode ---
+        if self.topo.ccd_count() > 1:
+            box.append(self._section_header("Game Mode"))
+            row = self._settings_row("CCD to keep",
+                                     "Which CCD stays active. Auto uses the benchmark winner.")
+            ids = self.topo.get_all_ccd_ids()
+            labels = ["Auto (benchmark)"] + [f"CCD{c} ({self.topo.core_count(c)} cores)"
+                                             for c in ids]
+            ccd_combo = Gtk.DropDown.new_from_strings(labels)
+            manual = cfg.get("keep_ccd_manual")
+            ccd_combo.set_selected(ids.index(manual) + 1 if manual in ids else 0)
+            ccd_combo.set_valign(Gtk.Align.CENTER)
+            ccd_combo.connect("notify::selected", lambda d, _p:
+                              self._on_keep_ccd(None if d.get_selected() == 0
+                                                else ids[d.get_selected() - 1]))
+            row.append(ccd_combo)
+            box.append(row)
 
-        page.append(placeholder)
+        # --- About ---
+        box.append(self._section_header("About"))
+        about = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        about.add_css_class("empty-card")
+        name = Gtk.Label(); name.set_xalign(0)
+        name.set_markup(f"<span weight='bold' color='#c0caf5' size='14000'>Gaming Command Center</span>")
+        about.append(name)
+        ver = Gtk.Label(label=f"Version {self.APP_VERSION} \u00b7 GPL-3.0-or-later")
+        ver.add_css_class("info-card-sub"); ver.set_xalign(0)
+        about.append(ver)
+        links = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        links.set_margin_top(6)
+        gh = Gtk.LinkButton.new_with_label(self.GITHUB_URL, "GitHub")
+        bug = Gtk.LinkButton.new_with_label(self.GITHUB_URL + "/issues", "Report a bug")
+        links.append(gh); links.append(bug)
+        about.append(links)
+        box.append(about)
 
+        clamp.set_child(box)
+        scroll.set_child(clamp)
+        page.append(scroll)
         return page
+
+    def _settings_row(self, title, subtitle):
+        """A labelled settings row; caller appends the control widget."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        row.add_css_class("info-card")
+        row.set_margin_top(4)
+        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        txt.set_hexpand(True); txt.set_valign(Gtk.Align.CENTER)
+        t = Gtk.Label(label=title); t.add_css_class("info-card-title"); t.set_xalign(0)
+        txt.append(t)
+        s = Gtk.Label(label=subtitle); s.add_css_class("info-card-sub"); s.set_xalign(0)
+        s.set_wrap(True)
+        txt.append(s)
+        row.append(txt)
+        return row
+
+    def _on_interval_changed(self, seconds):
+        self._monitor_interval = seconds
+        save_config({"monitor_interval": seconds})
+
+    def _on_only_verified(self, active):
+        save_config({"only_verified": bool(active)})
+        if hasattr(self, "games_page"):
+            self.games_page.rescan()
+
+    def _on_keep_ccd(self, ccd):
+        # None -> Auto: drop the manual override so the benchmark winner applies.
+        save_config({"keep_ccd_manual": ccd if ccd is not None else -1})
+        self.refresh()
 
     # ============================================================
     # UI Building Helpers
@@ -2016,7 +2110,7 @@ class CommandCenter(Adw.ApplicationWindow):
         1.5s, so all of it happens here and only the drawing is handed back."""
         while not self._stop_monitor.is_set():
             self._sample()
-            self._stop_monitor.wait(1.5)
+            self._stop_monitor.wait(self._monitor_interval)
 
     def _sample(self):
         try:

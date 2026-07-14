@@ -323,11 +323,16 @@ class CPUTopology:
         return sorted(c for c in self.present_cpus() if self.can_park(c))
 
     def keep_ccd(self):
-        """Which CCD survives Game Mode — the benchmark winner, else the first."""
+        """Which CCD survives Game Mode. Priority: a manual override from
+        Settings, else the benchmark winner, else the first CCD."""
         ids = self.get_all_ccd_ids()
         if not ids:
             return None
-        preferred = load_config().get("keep_ccd")
+        cfg = load_config()
+        manual = cfg.get("keep_ccd_manual")
+        if manual in ids:
+            return manual
+        preferred = cfg.get("keep_ccd")  # benchmark winner
         if preferred in ids:
             return preferred
         return ids[0]
