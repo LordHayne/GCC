@@ -43,16 +43,6 @@ games:
     steam_id: 2357570
     aliases: ["overwatch", "ow2"]
     issues:
-      - symptom: "Mouse locks up / can't turn 360°, camera snaps back"
-        cause: "NVIDIA + Wayland relative-motion grab bug; the compositor
-                clamps pointer motion so fast flicks get dropped."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          # No fixed -W/-H so it adapts to the user's monitor. Add
-          # `-W 2560 -H 1440 -r 144` before the `--` for a specific mode.
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
-
       - symptom: "GPU stays in P8 / low clocks (~555 MHz) in menus and in-game"
         cause: "NVIDIA power-state bug: the GPU never leaves its idle P-state
                 under the game's light-in-menu load."
@@ -72,16 +62,6 @@ games:
           value: "Enable 'Above 4G Decoding' and 'Re-Size BAR Support' in the
                   BIOS. RTX 20-series tops out at 256 MB regardless, so this
                   only fully helps on RTX 30-series and newer."
-
-  - name: "Hydroneer"
-    steam_id: 1106840
-    issues:
-      - symptom: "Mouse can't turn a full 360°"
-        cause: "Unreal Engine + NVIDIA + Wayland relative-motion grab bug."
-        when: { gpu: nvidia, session: wayland }
-        fix:
-          type: launch_option
-          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
 
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
