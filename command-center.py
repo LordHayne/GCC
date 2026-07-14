@@ -286,7 +286,8 @@ class SetupWizard(Gtk.Box):
         # Scrolled area for results
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_vexpand(True)
-        self.scroll.set_propagate_natural_height(False)
+        # Enable scrolling — don't block natural height
+        self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
         clamp = Adw.Clamp()
         clamp.set_maximum_size(640)
@@ -388,54 +389,51 @@ class SetupWizard(Gtk.Box):
                 f"<span color='#7aa2f7' weight='bold'>ℹ️ {summary_text}</span>")
 
     def _build_check_row(self, check):
-        """Build a single check result row."""
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        row.set_margin_start(10)
-        row.set_margin_end(10)
-        row.set_margin_top(6)
-        row.set_margin_bottom(6)
+        """Build a single check result row with visible card background."""
+        # Use a horizontal box with visible background
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        row.add_css_class("wizard-row")
+        row.set_margin_start(8)
+        row.set_margin_end(8)
+        row.set_margin_top(3)
+        row.set_margin_bottom(3)
 
-        # Status icon
-        if check.status == "ok":
-            icon_text = "✅"
-            icon_color = "#9ece6a"
-        elif check.status == "warning":
-            icon_text = "⚠️"
-            icon_color = "#e0af68"
-        else:
-            icon_text = "ℹ️"
-            icon_color = "#7aa2f7"
-
-        icon_lbl = Gtk.Label(label=icon_text)
-        icon_lbl.set_markup(f"<span color='{icon_color}' size='18'>{icon_text}</span>")
+        # Status icon — plain label, no markup
+        icons = {"ok": "✅", "warning": "⚠️", "info": "ℹ️"}
+        icon_lbl = Gtk.Label(label=icons.get(check.status, "ℹ️"))
+        icon_lbl.set_size_request(28, -1)
+        icon_lbl.set_xalign(0.5)
         icon_lbl.set_valign(Gtk.Align.START)
-        icon_lbl.set_margin_top(2)
+        icon_lbl.set_margin_top(4)
         row.append(icon_lbl)
 
-        # Name + message column
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        # Text column — use a vertical box with clear labels
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
         text_box.set_hexpand(True)
+        text_box.set_valign(Gtk.Align.CENTER)
 
+        # Name — bold, using CSS class instead of markup
         name_lbl = Gtk.Label(label=check.name)
-        name_lbl.set_markup(f"<span color='#c0caf5' weight='bold' size='13'>{check.name}</span>")
         name_lbl.set_halign(Gtk.Align.START)
         name_lbl.set_xalign(0)
+        name_lbl.add_css_class("wizard-name")
         text_box.append(name_lbl)
 
+        # Message — plain label
         msg_lbl = Gtk.Label(label=check.message)
-        msg_lbl.set_markup(f"<span color='#a9b1d6' size='11'>{check.message}</span>")
         msg_lbl.set_halign(Gtk.Align.START)
         msg_lbl.set_xalign(0)
         msg_lbl.set_wrap(True)
+        msg_lbl.add_css_class("wizard-msg")
         text_box.append(msg_lbl)
 
-        # Fix message if present
+        # Fix hint for warnings
         if check.fix_message and check.status == "warning":
-            fix_lbl = Gtk.Label(label=check.fix_message)
-            fix_lbl.set_markup(f"<span color='#e0af68' size='10'>→ {check.fix_message}</span>")
+            fix_lbl = Gtk.Label(label=f"→ {check.fix_message}")
             fix_lbl.set_halign(Gtk.Align.START)
             fix_lbl.set_xalign(0)
             fix_lbl.set_wrap(True)
+            fix_lbl.add_css_class("wizard-fix")
             text_box.append(fix_lbl)
 
         row.append(text_box)
@@ -592,6 +590,17 @@ class CommandCenter(Adw.ApplicationWindow):
         scale { margin-top: 4px; margin-bottom: 4px; }
 
         separator { background: rgba(255,255,255,0.04); }
+
+        /* Wizard check rows */
+        .wizard-row {
+            background: #24253b;
+            border-radius: 10px;
+            padding: 10px 14px;
+            border: 1px solid rgba(255,255,255,0.04);
+        }
+        .wizard-name { font-weight: 700; font-size: 13px; color: #c0caf5; }
+        .wizard-msg { font-size: 11px; color: #a9b1d6; }
+        .wizard-fix { font-size: 10px; color: #e0af68; }
 
         /* Setup Wizard styling */
         .scan-row {
