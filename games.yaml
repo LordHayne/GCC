@@ -63,6 +63,594 @@ games:
                   BIOS. RTX 20-series tops out at 256 MB regardless, so this
                   only fully helps on RTX 30-series and newer."
 
+  - name: "Hydroneer"
+    steam_id: 1106840
+    issues:
+      - symptom: "Mouse can't turn a full 360°"
+        cause: "Unreal Engine + NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+  - name: "Cyberpunk 2077"
+    steam_id: 1091500
+    aliases: ["cyberpunk"]
+    issues:
+      - symptom: "Launcher screen hangs or crashes before reaching the game"
+        cause: "The REDlauncher wrapper is fragile under Proton; skipping it
+                avoids the failure entirely."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command% --launcher-skip"
+
+      - symptom: "Mouse locks up / can't turn 360°, camera snaps back"
+        cause: "NVIDIA + Wayland relative-motion grab bug; the compositor
+                clamps pointer motion so fast flicks get dropped."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command% --launcher-skip"
+
+      - symptom: "Game won't start or mods fail after installing Amethyst / .NET mods"
+        cause: "Modding frameworks need native winmm and version DLL overrides
+                so Wine doesn't use its built-in substitutes."
+        fix:
+          type: launch_option
+          value: "WINEDLLOVERRIDES=\"winmm,version=n,b\" %command% -modded"
+
+      - symptom: "Flickering reflections and missing XeSS upscaling on Intel/AMD GPUs"
+        cause: "XeSS is Intel-only; on non-Intel hardware the game falls back
+                to broken built-in upscaling. FSR replacement fixes it."
+        fix:
+          type: info
+          value: "Install OptiScaler (mod) or use PROTON_FSR4_UPGRADE=1 with a
+                  recent Proton build. For FSR4 on RDNA4 GPUs, use
+                  Proton CachyOS or GE-Proton11."
+
+  - name: "Elden Ring"
+    steam_id: 1245620
+    aliases: ["elden ring", "er"]
+    issues:
+      - symptom: "Game crashes or freezes shortly after launch"
+        cause: "Default Proton version can hit a VKD3D shader-cache race;
+                GE-Proton includes patches that avoid it."
+        fix:
+          type: info
+          value: "Switch to GE-Proton10-34 or newer in Steam:
+                  Properties -> Compatibility -> Force the use of a specific
+                  Steam Play compatibility tool."
+
+      - symptom: "Stuttering during open-world traversal, especially first hours"
+        cause: "Shader compilation stutter from DXVK/VKD3D building pipelines
+                on the fly. The game compiles a massive shader set."
+        fix:
+          type: info
+          value: "Enable Steam Shader Pre-caching and let the game run for
+                  10-15 minutes in the open world. Stutter diminishes as the
+                  shader cache fills. You can also increase the shader cache:
+                  MESA_SHADER_CACHE_MAX_SIZE=10G"
+
+      - symptom: "EAC popup or 'inappropriate activity detected' on startup"
+        cause: "Elden Ring uses Easy Anti-Cheat which is now supported on
+                Linux, but only with Proton Experimental or GE-Proton."
+        fix:
+          type: info
+          value: "Use Proton Experimental or GE-Proton. EAC is enabled for
+                  Linux - the game should pass the check with a supported
+                  Proton version."
+
+  - name: "Baldur's Gate 3"
+    steam_id: 1086940
+    aliases: ["bg3", "baldurs gate 3"]
+    issues:
+      - symptom: "Act 2 fails to load or game crashes in Act 2 when using the Windows version via Proton"
+        cause: "The Proton (Windows) version has a loading bug in Act 2;
+                the native Linux build does not."
+        fix:
+          type: info
+          value: "Use the native Linux build: in Steam, force 'Steam Linux
+                  Runtime 3.0 (sniper)' as the compatibility tool. The native
+                  Vulkan renderer avoids the Act 2 crash."
+
+      - symptom: "Launcher appears every time, forcing a click before the game"
+        cause: "Larian launcher is an extra step that adds delay."
+        fix:
+          type: launch_option
+          value: "%command% --skip-launcher"
+
+      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
+        cause: "NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command% --skip-launcher"
+
+  - name: "Helldivers 2"
+    steam_id: 553850
+    aliases: ["helldivers", "hd2"]
+    issues:
+      - symptom: "Black screen on startup, game won't launch"
+        cause: "Recent game updates broke compatibility with stable Proton;
+                Proton Experimental (bleeding-edge) includes the fix."
+        fix:
+          type: info
+          value: "Switch to Proton Experimental. If it still won't start,
+                  enable the bleeding-edge beta: right-click Proton
+                  Experimental in your library -> Properties -> Betas ->
+                  bleeding-edge. Then delete the shader cache at
+                  ~/.steam/steam/steamapps/compatdata/553850"
+
+      - symptom: "Mouse escapes the window on multi-monitor setups"
+        cause: "SDL on Wayland doesn't grab the pointer to the game window
+                with multiple displays active."
+        fix:
+          type: launch_option
+          value: "SDL_VIDEODRIVER=x11 %command%"
+
+      - symptom: "Game hangs or crashes with AMD RX 7000-series GPUs"
+        cause: "Known DX12 async-compute GPU hang bug on RDNA3 - affects
+                Windows too, not Proton-specific."
+        fix:
+          type: info
+          value: "Disable Async Compute in the in-game graphics settings.
+                  This is a game/engine bug, not a Linux issue."
+
+  - name: "Palworld"
+    steam_id: 1623730
+    aliases: ["palworld"]
+    issues:
+      - symptom: "Server browser or multiplayer connectivity issues"
+        cause: "Palworld uses EOS (Epic Online Services) which sometimes
+                has connection issues under Proton."
+        fix:
+          type: info
+          value: "Use GE-Proton10-34 or newer for best EOS compatibility.
+                  If server browser fails, connect via direct IP instead."
+
+      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
+        cause: "Unreal Engine 5 + NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+  - name: "Counter-Strike 2"
+    steam_id: 730
+    aliases: ["cs2", "counter-strike"]
+    issues:
+      - symptom: "No audio or audio crackling/popping"
+        cause: "CS2's SDL audio backend doesn't always auto-detect PipeWire
+                or PulseAudio on Linux."
+        fix:
+          type: launch_option
+          value: "%command% -vulkan -sdlaudiodriver pipewire"
+
+      - symptom: "Mouse not captured / cursor escapes on GNOME Wayland"
+        cause: "GNOME Wayland doesn't lock the pointer properly for the
+                native SDL2 client without a hint."
+        when: { session: wayland }
+        fix:
+          type: launch_option
+          value: "SDL_VIDEODRIVER=wayland %command% -vulkan -sdlaudiodriver pipewire -fullscreen"
+
+      - symptom: "Screen tearing or VSync not respected"
+        cause: "The native Vulkan renderer doesn't enable VSync by default
+                on some compositors."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command% -vulkan -sdlaudiodriver pipewire +fps_max 0 -nojoy -fullscreen"
+
+      - symptom: "Low latency / AMD Anti-Lag not available on Linux"
+        cause: "AMD Anti-Lag is not exposed in the Linux version of CS2;
+                the Mesa Anti-Lag layer can substitute."
+        when: { gpu: amd }
+        fix:
+          type: launch_option
+          value: "ENABLE_LAYER_MESA_ANTI_LAG=1 %command% -vulkan"
+
+  - name: "Dota 2"
+    steam_id: 570
+    aliases: ["dota"]
+    issues:
+      - symptom: "No audio or audio crackling/popping"
+        cause: "Dota 2's SDL audio backend sometimes fails to auto-detect
+                the audio server on Linux."
+        fix:
+          type: launch_option
+          value: "SDL_AUDIODRIVER=pipewire PULSE_LATENCY_MSEC=60 gamemoderun %command% -novid -high -sdlaudiodriver pipewire"
+
+      - symptom: "Stuttering or inconsistent frame pacing"
+        cause: "Vulkan present mode can default to FIFO (VSync) which causes
+                frame drops if FPS dips below refresh rate."
+        fix:
+          type: launch_option
+          value: "MESA_VK_WSI_PRESENT_MODE=relaxed gamemoderun %command% -novid -nojoy -high -sdlaudiodriver pipewire"
+
+  - name: "Apex Legends"
+    steam_id: 1172470
+    aliases: ["apex", "apex legends"]
+    issues:
+      - symptom: "Game won't launch — blocked by Easy Anti-Cheat (EAC)"
+        cause: "EA/DICE has explicitly denied Linux support for Apex Legends.
+                EAC blocks the game from running under Proton."
+        fix:
+          type: info
+          value: "Apex Legends is DENIED on Linux. The anti-cheat (EAC +
+                  Hyperion) will not let the game start. There is no fix -
+                  this is a publisher decision, not a technical limitation.
+                  Apex will not run on Linux for the foreseeable future."
+
+  - name: "PUBG: Battlegrounds"
+    steam_id: 578080
+    aliases: ["pubg"]
+    issues:
+      - symptom: "Game won't launch — BattlEye anti-cheat blocks it"
+        cause: "PUBG uses BattlEye which is listed as 'Broken' on
+                AreWeAntiCheatYet. The anti-cheat kicks the player before
+                the game loads."
+        fix:
+          type: info
+          value: "PUBG is BROKEN on Linux. BattlEye anti-cheat blocks the
+                  game. PUBG Corporation has not enabled Linux support for
+                  BattlEye. There is no fix - the game will not run."
+
+  - name: "Grand Theft Auto V"
+    steam_id: 271590
+    aliases: ["gtav", "gta 5", "gta v"]
+    issues:
+      - symptom: "Game won't start — Rockstar Social Club installer fails"
+        cause: "The Rockstar launcher needs .NET 4.8 and vcredist to install
+                via Proton; default Proton doesn't include these."
+        fix:
+          type: info
+          value: "Use Proton Experimental or GE-Proton. Install dependencies:
+                  protontricks 271590 dotnet48 vcredist2022
+                  Then set launch options to skip BattlEye (see below)."
+
+      - symptom: "GTA Online kicks you or won't connect — BattlEye anti-cheat"
+        cause: "GTA Online added BattlEye which is not enabled for Linux.
+                Single-player works fine; only online is blocked."
+        fix:
+          type: launch_option
+          value: "WINEDLLOVERRIDES=\"dinput8=n,b\" %command% -nobattleye"
+
+      - symptom: "Flickering reflections in Diamond Casino and other areas (AMD)"
+        cause: "RADV driver DCC compression causes visual artifacts with
+                certain reflection effects in GTA V."
+        when: { gpu: amd }
+        fix:
+          type: launch_option
+          value: "RADV_DEBUG=nodcc gamemoderun mangohud %command%"
+
+      - symptom: "Invite-only online sessions get kicked despite -nobattleye"
+        cause: "BattlEye still phones home even with the DLL overridden."
+        fix:
+          type: info
+          value: "Block BattlEye servers in /etc/hosts to stay in invite-only
+                  lobbies. See the Steam Community guide:
+                  https://steamcommunity.com/sharedfiles/filedetails/?id=3658540317"
+
+  - name: "Red Dead Redemption 2"
+    steam_id: 1174180
+    aliases: ["rdr2", "red dead"]
+    issues:
+      - symptom: "Frequent crashes or instability on startup"
+        cause: "RDR2's Rockstar launcher is fragile under default Proton;
+                GE-Proton includes stability patches."
+        fix:
+          type: info
+          value: "Use GE-Proton11-1 or newer. In Steam: Properties ->
+                  Compatibility -> force GE-Proton. This significantly
+                  reduces crash frequency."
+
+      - symptom: "Fullscreen mode broken — window has wrong size or borders"
+        cause: "The Rockstar launcher sets a wrong window size that the
+                compositor doesn't correct."
+        fix:
+          type: launch_option
+          value: "SDL_VIDEODRIVER=x11 %command%"
+
+      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
+        cause: "NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+      - symptom: "Red Dead Online multiplayer doesn't work"
+        cause: "RDO has no anti-cheat support for Linux; single-player
+                works fine but online is unsupported."
+        fix:
+          type: info
+          value: "Red Dead Online does not work on Linux due to lack of
+                  anti-cheat support. Single-player mode works perfectly
+                  with the fixes above."
+
+  - name: "Monster Hunter World"
+    steam_id: 582010
+    aliases: ["mhw", "monster hunter"]
+    issues:
+      - symptom: "Poor performance (below 40 FPS) even on capable hardware"
+        cause: "The game defaults to DirectX 11; forcing DirectX 12 via
+                VKD3D gives much better performance through Vulkan."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_VKD3D=1 %command%"
+
+      - symptom: "Crashes with mods (Stracker's Loader, Performance Booster)"
+        cause: "Mod loaders require specific DLL overrides and .NET runtime
+                to function under Proton."
+        fix:
+          type: info
+          value: "Use GE-Proton10-34 or newer. Install dependencies:
+                  protontricks 582010 dotnetdesktop8 d3dcompiler_47
+                  Then use: WINEDLLOVERRIDES=\"msvcrt,dinput8=n,b\" mangohud %command%"
+
+      - symptom: "Shader cache stutters in dense areas"
+        cause: "MHW compiles many DX11 shaders on-the-fly; the default
+                cache size is too small."
+        fix:
+          type: launch_option
+          value: "MESA_SHADER_CACHE_MAX_SIZE=10G WINEDLLOVERRIDES=\"dinput8.dll=n,b\" game-performance mangohud %command%"
+
+  - name: "Hogwarts Legacy"
+    steam_id: 990080
+    aliases: ["hogwarts", "hogwarts legacy"]
+    issues:
+      - symptom: "Game crashes on startup or in certain cutscenes"
+        cause: "Hogwarts Legacy is sensitive to Proton version; older stable
+                Proton can crash where Experimental does not."
+        fix:
+          type: info
+          value: "Use Proton Experimental or GE-Proton for best stability.
+                  If crashes persist, try forcing Proton 9.0-4 which some
+                  users report as more stable for this title."
+
+      - symptom: "Alt+Tab doesn't work — game window becomes unresponsive"
+        cause: "Fullscreen exclusive mode doesn't handle Wayland/X11
+                compositor focus changes well."
+        fix:
+          type: info
+          value: "Play in borderless windowed mode instead of fullscreen
+                  exclusive. This is set in the in-game graphics options."
+
+      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
+        cause: "Unreal Engine + NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+  - name: "The Witcher 3: Wild Hunt"
+    steam_id: 292030
+    aliases: ["witcher 3", "tw3"]
+    issues:
+      - symptom: "Game crashes frequently when using DirectX 12 renderer"
+        cause: "The DX12 renderer in the next-gen update is unstable under
+                Proton; DX11 is more reliable."
+        fix:
+          type: info
+          value: "Select DirectX 11 in the launcher instead of DirectX 12.
+                  The DX12 path crashes frequently under Proton while DX11
+                  is rock-solid."
+
+      - symptom: "REDlauncher appears every time, delaying game start"
+        cause: "The next-gen update added a launcher wrapper that adds
+                an extra click."
+        fix:
+          type: launch_option
+          value: "%command% --launcher-skip"
+
+      - symptom: "Frame generation (DLSS/FSR FG) causes choppiness and crashes"
+        cause: "Frame generation under Proton/DXVK is not fully stable
+                with the Witcher 3's DX12 renderer."
+        fix:
+          type: info
+          value: "Disable frame generation in the in-game settings. Use
+                  standard FSR or DLSS upscaling instead. If using DX12,
+                  also disable 'Cross Progression' in gameplay settings
+                  to prevent crashes."
+
+  - name: "Fallout 4"
+    steam_id: 377160
+    aliases: ["fallout 4", "fo4"]
+    issues:
+      - symptom: "Game crashes on startup or mods fail to load"
+        cause: "Fallout 4's Script Extender (F4SE) and mods need specific
+                DLL overrides to work under Proton."
+        fix:
+          type: info
+          value: "Use Proton Experimental or GE-Proton. For modding,
+                  install F4SE and set:
+                  WINEDLLOVERRIDES=\"dinput8=n,b\" %command%
+                  Install .NET via protontricks if mods require it."
+
+      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
+        cause: "Creation Engine + NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+  - name: "The Elder Scrolls V: Skyrim Special Edition"
+    steam_id: 489830
+    aliases: ["skyrim", "skyrim se", "sse"]
+    issues:
+      - symptom: "Controller not detected (especially 8bitdo controllers)"
+        cause: "Proton's SDL controller handling doesn't always pass
+                through gamepad input without an explicit SDL hint."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_SDL=1 %command%"
+
+      - symptom: "SKSE (Skyrim Script Extender) mods fail — no dialogue audio or music"
+        cause: "SKSE needs native dinput8 override; without it, audio mods
+                and script-dependent content break."
+        fix:
+          type: launch_option
+          value: "WINEDLLOVERRIDES=\"dinput8=n,b\" %command%"
+
+      - symptom: "UI spans wrong monitor in multi-monitor setups"
+        cause: "Skyrim renders its UI at a fixed resolution and can place it
+                on the wrong display in multi-monitor configs."
+        fix:
+          type: info
+          value: "Use gamescope to force the game onto your primary display:
+                  gamescope -f -W 1920 -H 1080 -- %command%
+                  Or set the primary monitor in your DE before launching."
+
+  - name: "No Man's Sky"
+    steam_id: 275850
+    aliases: ["nms", "no mans sky"]
+    issues:
+      - symptom: "Stuttering during flight and planet transitions"
+        cause: "Shader compilation stutter from the Vulkan renderer building
+                pipelines on the fly; the shader cache is large."
+        fix:
+          type: launch_option
+          value: "MESA_SHADER_CACHE_MAX_SIZE=10G gamemoderun %command%"
+
+      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
+        cause: "NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+  - name: "Dark Souls III"
+    steam_id: 374320
+    aliases: ["ds3", "dark souls 3"]
+    issues:
+      - symptom: "Controller not detected (especially non-Xbox controllers)"
+        cause: "Proton's SDL controller handling doesn't detect some
+                controllers (e.g. 8bitdo) without an explicit hint."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_SDL=1 %command%"
+
+      - symptom: "FPS drops below 60 in dense areas at high resolution"
+        cause: "DX11 shader compilation is heavy; the default Proton
+                version may not be optimal for this title."
+        fix:
+          type: info
+          value: "Use GE-Proton10-34 or Proton 9.0-4 for best performance.
+                  Add: gamemoderun mangohud %command%
+                  for frame pacing improvements."
+
+      - symptom: "Window focus issues after Alt+Tab on GNOME"
+        cause: "GNOME's Wayland compositor doesn't restore focus to the
+                fullscreen Proton window properly after Alt+Tab."
+        when: { session: wayland }
+        fix:
+          type: info
+          value: "Use gamescope to isolate the window:
+                  gamescope -f -- %command%
+                  Or play in borderless windowed mode."
+
+  - name: "Doom Eternal"
+    steam_id: 782330
+    aliases: ["doom eternal"]
+    issues:
+      - symptom: "Bethesda login screen blocks startup or loops endlessly"
+        cause: "The Bethesda sign-in manager requires network access to
+                api.bethesda.net which can fail under Proton."
+        fix:
+          type: launch_option
+          value: "%command% +com_skipIntroVideo 1 +com_skipSignInManager 1"
+
+      - symptom: "Intro videos play every launch with no way to skip"
+        cause: "The game doesn't expose a skip option in its menus; the
+                console command must be passed as a launch option."
+        fix:
+          type: launch_option
+          value: "%command% +com_skipIntroVideo 1"
+
+      - symptom: "No HDR or Wayland support with default Proton"
+        cause: "Default Proton doesn't enable Wayland or HDR; recent
+                Proton builds support both via environment variables."
+        when: { session: wayland }
+        fix:
+          type: launch_option
+          value: "PROTON_ENABLE_WAYLAND=1 PROTON_ENABLE_HDR=1 %command% +com_skipIntroVideo 1"
+
+  - name: "Doom (2016)"
+    steam_id: 379720
+    aliases: ["doom 2016", "doom"]
+    issues:
+      - symptom: "Game won't open or crashes immediately on launch"
+        cause: "Doom 2016 requires specific Proton version and launch
+                options to start under Proton; the default version fails."
+        fix:
+          type: info
+          value: "Use Proton 9.0-4 or GE-Proton. The game needs a specific
+                  Proton version - newer is not always better for this title."
+
+      - symptom: "Game uses integrated GPU instead of dedicated GPU (laptops)"
+        cause: "Doom 2016 doesn't always detect the dGPU on hybrid laptops;
+                an explicit PRIME render offload variable fixes it."
+        fix:
+          type: launch_option
+          value: "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia %command%"
+
+      - symptom: "Multi-monitor setups cap FPS at 60 or don't display properly"
+        cause: "The game's fullscreen mode interacts poorly with
+                multi-monitor configurations."
+        fix:
+          type: info
+          value: "Use gamescope to force a single display mode:
+                  gamescope -f -W 1920 -H 1080 -r 144 -- %command%
+                  Avoid disabling monitors in display settings - this can
+                  disable the GPU output port entirely."
+
+  - name: "Sekiro: Shadows Die Twice"
+    steam_id: 814380
+    aliases: ["sekiro"]
+    issues:
+      - symptom: "Game crashes on startup or during gameplay"
+        cause: "Sekiro is sensitive to Proton version; certain Proton
+                builds crash while others work."
+        fix:
+          type: info
+          value: "Use GE-Proton10-34 or Proton Experimental. If crashes
+                  persist, try Proton 9.0-4 which is reported as more
+                  stable for this title."
+
+      - symptom: "Mouse locks up / can't turn 360° on NVIDIA + Wayland"
+        cause: "NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+      - symptom: "Controller not detected"
+        cause: "Proton's SDL controller handling doesn't detect some
+                controllers without an explicit hint."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_SDL=1 %command%"
+
+  - name: "Terraria"
+    steam_id: 105600
+    aliases: ["terraria"]
+    issues:
+      - symptom: "Audio is broken or missing (native version)"
+        cause: "The native Linux build has a known SDL audio bug where
+                audio devices aren't detected properly."
+        fix:
+          type: launch_option
+          value: "SDL_AUDIODRIVER=pulse %command%"
+
+      - symptom: "Multiplayer connectivity issues (native version)"
+        cause: "The native Linux build has networking quirks; running
+                through Proton uses the Windows networking stack which
+                is more compatible."
+        fix:
+          type: info
+          value: "If multiplayer fails on the native build, force Proton
+                  in Steam compatibility settings. Some users report better
+                  multiplayer stability through Proton than native."
+
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
 # =====================================================================
