@@ -1,0 +1,100 @@
+# =====================================================================
+# Gaming Command Center — Per-Game Fix Database
+# =====================================================================
+#
+# This is the community-maintained list of known Linux gaming issues and
+# their fixes. Found a fix for a game? Add it here and open a pull request.
+#
+# HOW TO ADD A GAME
+# -----------------
+# Copy the _template block at the bottom, fill it in, and drop it under
+# `games:`. The only required fields are `name` and `steam_id`.
+#
+#   steam_id : the number in the Steam store URL
+#              store.steampowered.com/app/<steam_id>/
+#   issues   : each has a symptom, a cause, and a fix
+#
+# FIX TYPES (only these four — anything else is ignored on load)
+# -------------------------------------------------------------
+#   info          Show text only. Use for BIOS steps, hardware limits,
+#                 anything the app cannot do for the user.
+#   launch_option Set a Steam launch option. `value` is the string; keep
+#                 %command% where Steam expects it.
+#   file          Write a config file. `path` (~ is expanded) + `content`.
+#                 Paths under /etc are rejected — user home only.
+#   tool_action   Trigger one of Gaming Command Center's own actions.
+#                 `action` must be one of: game_mode
+#
+# We deliberately do NOT support arbitrary shell commands. This file is
+# edited by strangers via pull request; a fix that could run any command
+# would make it an attack vector. If a fix truly needs a command, add it
+# as `info` so the user reads and runs it themselves.
+#
+# WHEN A FIX APPLIES (optional)
+# -----------------------------
+# Add a `when:` block to show an issue only on matching setups:
+#   when: { gpu: nvidia, session: wayland }
+# Keys: gpu (nvidia|amd|intel), session (wayland|x11). Omit `when` for
+# issues that apply to everyone.
+# =====================================================================
+
+games:
+  - name: "Overwatch 2"
+    steam_id: 2357570
+    aliases: ["overwatch", "ow2"]
+    issues:
+      - symptom: "Mouse locks up / can't turn 360°, camera snaps back"
+        cause: "NVIDIA + Wayland relative-motion grab bug; the compositor
+                clamps pointer motion so fast flicks get dropped."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          # No fixed -W/-H so it adapts to the user's monitor. Add
+          # `-W 2560 -H 1440 -r 144` before the `--` for a specific mode.
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+      - symptom: "GPU stays in P8 / low clocks (~555 MHz) in menus and in-game"
+        cause: "NVIDIA power-state bug: the GPU never leaves its idle P-state
+                under the game's light-in-menu load."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Lock the GPU clocks while playing:
+                  sudo nvidia-smi -lgc 1815,1815
+                  Reset afterwards with: sudo nvidia-smi -rgc"
+
+      - symptom: "Stutter in VRAM-heavy fights on RTX 20-series cards"
+        cause: "Resizable BAR is capped at 256 MB on Turing (RTX 20-series).
+                This is a hardware limit — no VBIOS fix exists."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Enable 'Above 4G Decoding' and 'Re-Size BAR Support' in the
+                  BIOS. RTX 20-series tops out at 256 MB regardless, so this
+                  only fully helps on RTX 30-series and newer."
+
+  - name: "Hydroneer"
+    steam_id: 1106840
+    issues:
+      - symptom: "Mouse can't turn a full 360°"
+        cause: "Unreal Engine + NVIDIA + Wayland relative-motion grab bug."
+        when: { gpu: nvidia, session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f --immediate-flips --backend sdl -- game-performance %command%"
+
+# =====================================================================
+# Template — copy this, fill it in, delete the comment lines you don't need
+# =====================================================================
+# - name: "Game Name"
+#   steam_id: 000000
+#   aliases: ["short name"]          # optional, for non-Steam launchers
+#   issues:
+#     - symptom: "What the player sees going wrong"
+#       cause: "Why it happens (one or two lines)"
+#       when: { gpu: nvidia, session: wayland }   # optional
+#       fix:
+#         type: launch_option        # info | launch_option | file | tool_action
+#         value: "gamescope -f -- game-performance %command%"
+#         # for type: file  ->  path: "~/.config/foo/bar.conf"  +  content: "..."
+#         # for type: tool_action  ->  action: game_mode

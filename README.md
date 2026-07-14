@@ -25,7 +25,13 @@ Gaming Command Center is a desktop GUI for Linux that brings hardware optimizati
 **Game Doctor — Guided Troubleshooting**
 - 🩺 System scan: 15+ checks for common Linux gaming issues
 - 🔧 Apply Fix buttons: One-click fixes for governor, audio, SATA, modprobe, coolbits, etc.
-- 🎮 Per-game fixes: Coming soon — known issues and optimal config per game (like ProtonDB, but machine-readable and built into the app)
+
+**Games — Per-Game Fixes**
+- 🎮 Detects your Steam games and matches them against a community fix database (`games.yaml`)
+- ⚡ One-click apply: sets Steam launch options automatically (backs up your config, refuses while Steam is running)
+- 🩹 Shows only the issues relevant to your setup (GPU vendor + Wayland/X11)
+- 📊 ProtonDB tier shown per game for context
+- 🔒 Safe by design: the database can only carry whitelisted fix types (info, launch option, config file, built-in action) — never arbitrary shell commands
 
 **Setup Wizard — First-run Optimization**
 - 🚀 One-click system scan + optimization
@@ -44,8 +50,10 @@ Gaming Command Center is a desktop GUI for Linux that brings hardware optimizati
 
 **Game Doctor**
 - ✅ System-level checks and fixes
-- 🔜 Per-game database (games.yaml — community-maintained, like ProtonDB)
-- 🔜 Auto-set Steam Launch Options per game
+- ✅ Per-game database (games.yaml — community-maintained)
+- ✅ Auto-set Steam Launch Options per game
+- 🔜 More games (contribute via PR — see below)
+- 🔜 Optional auto-update of the database from GitHub
 - 🔜 Auto-create GE-Proton user_settings.py
 - 🔜 Known bug detection (NVIDIA+Wayland input freeze, P8 idle bug, etc.)
 
@@ -108,6 +116,24 @@ you do constantly does not cost you a password:
 
 The `/etc` fixes are one-time setup steps, and both back up any file they touch
 before merging their setting into it — your existing NVIDIA options are kept.
+
+### Contributing game fixes
+
+The whole point is that nobody should have to dig through Reddit and ProtonDB
+for two hours again. Found a fix that works? Add it so the next person gets it
+with one click.
+
+1. Open [`games.yaml`](games.yaml) — it's commented, with a template at the bottom.
+2. Add your game (the `steam_id` is the number in its Steam store URL) and the
+   issue + fix.
+3. Open a pull request.
+
+Fixes can be one of four types: `info` (show text), `launch_option` (set a Steam
+launch option), `file` (write a config file in the user's home), or
+`tool_action` (trigger a built-in like Game Mode). **Arbitrary shell commands
+are intentionally not supported** — the loader drops anything else, so a bad PR
+can't turn the database into an attack vector. If a fix genuinely needs a
+command, add it as `info` so the user reads and runs it themselves.
 
 ### License
 

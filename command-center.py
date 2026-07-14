@@ -20,6 +20,8 @@ from gi.repository import Gtk, Adw, GLib, Gdk, GObject
 import subprocess, os, re, shutil, threading, time
 from system_scanner import scan_system
 from topology import CPUTopology, format_cpu_list, save_config
+import game_db
+import steam_scanner
 
 
 # ============================================================
@@ -522,6 +524,299 @@ nv_powermizer_mode=1
 
 
 # ============================================================
+# Games Page — per-game fixes from games.yaml
+# ============================================================
+class GamesPage(Gtk.Box):
+    """Detects the user's Steam games, matches them against games.yaml, and
+    offers one-click fixes. The database is the trust boundary (game_db only
+    ever loads whitelisted fix types); this page just applies them."""
+
+    def __init__(self, win, **kwargs):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
+        self.win = win
+        self.db, self.db_err = game_db.load_games()
+
+        # Header + rescan
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.set_margin_start(16)
+        header.set_margin_end(16)
+        header.set_margin_top(16)
+        header.set_margin_bottom(8)
+        title = Gtk.Label(label="GAMES")
+        title.add_css_class("page-title")
+        title.set_halign(Gtk.Align.START)
+        header.append(title)
+        spacer = Gtk.Box(); spacer.set_hexpand(True); header.append(spacer)
+        self.rescan_btn = Gtk.Button(label="Rescan")
+        self.rescan_btn.add_css_class("btn-apply")
+        self.rescan_btn.connect("clicked", lambda *_: self.rescan())
+        header.append(self.rescan_btn)
+        self.append(header)
+
+        self.subtitle = Gtk.Label(label="")
+        self.subtitle.add_css_class("page-subtitle")
+        self.subtitle.set_halign(Gtk.Align.START)
+        self.subtitle.set_margin_start(16)
+        self.subtitle.set_wrap(True)
+        self.append(self.subtitle)
+        self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_vexpand(True)
+        self.list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.list_box.set_margin_start(16)
+        self.list_box.set_margin_end(16)
+        self.list_box.set_margin_top(12)
+        self.list_box.set_margin_bottom(16)
+        scroll.set_child(self.list_box)
+        self.append(scroll)
+
+        self.rescan()
+
+    # ---------- current system, for `when:` filtering ----------
+    def _gpu_vendor(self):
+        name = (self.win.gpu.name or "").lower()
+        if "nvidia" in name:
+            return "nvidia"
+        if any(x in name for x in ("amd", "radeon")):
+            return "amd"
+        if "intel" in name:
+            return "intel"
+        return None
+
+    def _session(self):
+        return "wayland" if os.environ.get("WAYLAND_DISPLAY") else \
+               ("x11" if os.environ.get("DISPLAY") else None)
+
+    @staticmethod
+    def _is_steam_tool(name):
+        if not name:
+            return False
+        n = name.lower()
+        return any(t in n for t in (
+            "proton", "steam linux runtime", "steamworks common",
+            "steamvr", "redistributable"))
+
+    def _clear(self):
+        child = self.list_box.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.list_box.remove(child)
+            child = nxt
+
+    def rescan(self):
+        self._clear()
+        if self.db_err:
+            self.subtitle.set_text(self.db_err)
+            self._empty(f"Cannot load fix database: {self.db_err}")
+            return
+
+        root = steam_scanner.find_steam_root()
+        if not root:
+            self.subtitle.set_text("Steam not found")
+            self._empty("No Steam installation found. Only Steam games are "
+                        "supported for now.")
+            return
+
+        detected = steam_scanner.detect_appids()  # {appid: name|None}
+        gpu, session = self._gpu_vendor(), self._session()
+
+        # Show a game if we have fixes for it, or it's a real installed game.
+        rows = []
+        for appid, name in detected.items():
+            game = self.db.get(appid)
+            installed_name = name and not self._is_steam_tool(name)
+            if game is None and not installed_name:
+                continue
+            disp_name = (game.name if game else name) or f"App {appid}"
+            issues = [i for i in (game.issues if game else [])
+                      if i.matches_system(gpu, session)]
+            rows.append((appid, disp_name, issues, game is not None))
+
+        # Games with fixes first, then alphabetical.
+        rows.sort(key=lambda r: (not r[2], r[1].lower()))
+
+        with_fixes = sum(1 for r in rows if r[2])
+        self.subtitle.set_text(
+            f"{len(rows)} games detected · {with_fixes} with known fixes · "
+            f"{len(self.db)} games in database")
+
+        if not rows:
+            self._empty("No matching games found. Play a game once so Steam "
+                        "knows it, then rescan.")
+            return
+
+        for appid, name, issues, in_db in rows:
+            self.list_box.append(self._build_game_card(appid, name, issues, in_db))
+
+    def _empty(self, text):
+        lbl = Gtk.Label(label=text)
+        lbl.add_css_class("page-subtitle")
+        lbl.set_wrap(True)
+        lbl.set_xalign(0)
+        lbl.set_margin_top(20)
+        self.list_box.append(lbl)
+
+    def _build_game_card(self, appid, name, issues, in_db):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.add_css_class("game-card")
+
+        # Title row: name + ProtonDB tier (lazy) + issue count
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title = Gtk.Label(label=name)
+        title.add_css_class("game-title")
+        title.set_xalign(0)
+        title_row.append(title)
+        tier_lbl = Gtk.Label(label="")
+        tier_lbl.add_css_class("game-tier")
+        title_row.append(tier_lbl)
+        spacer = Gtk.Box(); spacer.set_hexpand(True); title_row.append(spacer)
+        summary = Gtk.Label(label=(
+            f"{len(issues)} known issue{'s' if len(issues) != 1 else ''}"
+            if issues else "no known issues for your setup"))
+        summary.add_css_class("stat-label")
+        title_row.append(summary)
+        card.append(title_row)
+
+        for issue in issues:
+            card.append(self._build_issue_row(appid, issue))
+
+        self._load_tier_async(appid, tier_lbl)
+        return card
+
+    def _build_issue_row(self, appid, issue):
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        row.add_css_class("issue-row")
+
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        sym = Gtk.Label(label=issue.symptom)
+        sym.add_css_class("issue-symptom")
+        sym.set_xalign(0)
+        sym.set_wrap(True)
+        sym.set_hexpand(True)
+        top.append(sym)
+        row.append(top)
+
+        if issue.cause:
+            cause = Gtk.Label(label=issue.cause)
+            cause.add_css_class("issue-cause")
+            cause.set_xalign(0)
+            cause.set_wrap(True)
+            row.append(cause)
+
+        fix = issue.fix
+        if fix.type == "info":
+            info = Gtk.Label(label=fix.value)
+            info.add_css_class("issue-info")
+            info.set_xalign(0)
+            info.set_wrap(True)
+            info.set_selectable(True)  # so the user can copy a command
+            row.append(info)
+        else:
+            action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            btn = Gtk.Button()
+            btn.add_css_class("btn-apply")
+            if fix.type == "launch_option":
+                btn.set_label("Apply launch option")
+            elif fix.type == "file":
+                btn.set_label("Create config file")
+            elif fix.type == "tool_action":
+                btn.set_label("Apply fix")
+            btn.connect("clicked", self.on_apply_fix, appid, issue)
+            action_row.append(btn)
+            result = Gtk.Label(label="")
+            result.add_css_class("issue-result")
+            result.set_xalign(0)
+            result.set_wrap(True)
+            action_row.append(result)
+            btn._result = result
+            row.append(action_row)
+
+            if fix.type == "launch_option":
+                # The exact string, always visible and selectable — the manual
+                # fallback if Steam is open.
+                lo = Gtk.Label(label=fix.value)
+                lo.add_css_class("issue-info")
+                lo.set_xalign(0)
+                lo.set_wrap(True)
+                lo.set_selectable(True)
+                row.append(lo)
+
+        return row
+
+    def on_apply_fix(self, btn, appid, issue):
+        fix = issue.fix
+        btn.set_sensitive(False)
+        btn.set_label("Applying...")
+        result = btn._result
+
+        def work():
+            ok, msg = self._apply(appid, fix)
+
+            def done():
+                btn.set_sensitive(True)
+                btn.set_label("Applied" if ok else "Retry")
+                color = "#9ece6a" if ok else "#f7768e"
+                result.set_markup(
+                    f"<span color='{color}'>{GLib.markup_escape_text(msg)}</span>")
+                if fix.type == "launch_option" and not ok and "running" in msg.lower():
+                    self._copy(fix.value)
+                    result.set_markup(
+                        "<span color='#e0af68'>Steam is open — copied the option "
+                        "to your clipboard. Paste it into the game's Launch "
+                        "Options, or close Steam and click again.</span>")
+                return False
+
+            GLib.idle_add(done)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply(self, appid, fix):
+        if fix.type == "launch_option":
+            return steam_scanner.set_launch_options(appid, fix.value)
+        if fix.type == "file":
+            path = os.path.expanduser(fix.path)
+            try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as f:
+                    f.write(fix.content)
+            except OSError as e:
+                return False, f"Could not write {fix.path}: {e}"
+            return True, f"Wrote {fix.path}"
+        if fix.type == "tool_action" and fix.action == "game_mode":
+            if not self.win.topo.complete:
+                return False, "CPU layout unknown — restore all cores first"
+            keep = self.win.topo.keep_ccd()
+            plan = self.win.topo.park_plan(keep)
+            if not plan:
+                return False, "This CPU has only one CCD — Game Mode n/a"
+            ok, err = CCDController.park(plan)
+            return (True, f"Game Mode on — kept CCD{keep}") if ok else (False, err)
+        return False, "Unsupported fix"
+
+    def _copy(self, text):
+        try:
+            self.win.get_clipboard().set(text)
+        except Exception:
+            pass
+
+    def _load_tier_async(self, appid, label):
+        def work():
+            tier, total = steam_scanner.protondb_tier(appid)
+            if not tier:
+                return
+            colors = {"platinum": "#c0caf5", "gold": "#e0af68",
+                      "silver": "#9aa5ce", "bronze": "#cd7f32",
+                      "borked": "#f7768e", "pending": "#565f89"}
+            c = colors.get(tier, "#565f89")
+            GLib.idle_add(lambda: label.set_markup(
+                f"<span color='{c}'>ProtonDB: {tier.capitalize()} "
+                f"({total} reports)</span>") or False)
+
+        threading.Thread(target=work, daemon=True).start()
+
+
+# ============================================================
 # Main Window
 # ============================================================
 class CommandCenter(Adw.ApplicationWindow):
@@ -677,6 +972,25 @@ class CommandCenter(Adw.ApplicationWindow):
             border-radius: 5px; min-height: 14px;
         }
 
+        /* === Games === */
+        .game-card {
+            background: #1e1f2e; border-radius: 12px; padding: 14px 16px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .game-title { color: #c0caf5; font-weight: bold; font-size: 16px; }
+        .game-tier { font-size: 11px; }
+        .issue-row {
+            background: #14151f; border-radius: 8px; padding: 8px 10px;
+            margin-top: 6px;
+        }
+        .issue-symptom { color: #e0af68; font-weight: bold; }
+        .issue-cause { color: #565f89; font-size: 12px; }
+        .issue-info {
+            color: #9aa5ce; font-family: monospace; font-size: 12px;
+            margin-top: 4px;
+        }
+        .issue-result { font-size: 12px; }
+
         /* === Sliders === */
         scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
         scale highlight { background: #7aa2f7; border-radius: 3px; }
@@ -817,6 +1131,10 @@ class CommandCenter(Adw.ApplicationWindow):
         self.view_stack.add_titled(
             self._build_dashboard_page(), "dashboard", "Dashboard")
 
+        # Games page (per-game fixes)
+        self.games_page = GamesPage(self)
+        self.view_stack.add_titled(self.games_page, "games", "Games")
+
         # Game Doctor page
         self.game_doctor = GameDoctorPage()
         self.view_stack.add_titled(
@@ -882,6 +1200,7 @@ class CommandCenter(Adw.ApplicationWindow):
         self.sidebar_items = {}
         nav_entries = [
             ("Dashboard", "dashboard"),
+            ("Games", "games"),
             ("Game Doctor", "doctor"),
             ("Benchmark", "benchmark"),
             ("Settings", "settings"),
