@@ -1,0 +1,74 @@
+#!/bin/bash
+# Gaming Command Center — Installer
+# One script does everything: install files, set permissions, configure polkit
+# Usage: ./install.sh
+
+set -e
+
+echo "🎮 Gaming Command Center — Installer"
+echo "====================================="
+echo
+
+# Check we're not root (need sudo for some parts)
+if [ "$EUID" -eq 0 ]; then
+    echo "❌ Don't run as root. Run as your normal user."
+    exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+echo "📦 Installing system files (requires sudo)..."
+echo
+
+# 1. Helper script → /usr/local/bin
+sudo cp "$SCRIPT_DIR/gaming-ccd-helper" /usr/local/bin/gaming-ccd-helper
+sudo chmod +x /usr/local/bin/gaming-ccd-helper
+echo "  ✅ Helper installed → /usr/local/bin/gaming-ccd-helper"
+
+# 2. Polkit policy → /usr/share/polkit-1/actions/
+sudo cp "$SCRIPT_DIR/com.gaming.commandcenter.policy" /usr/share/polkit-1/actions/
+echo "  ✅ Polkit policy installed (no password for Game Mode)"
+
+# 3. App icon → system icons
+for size in 48 64 128 256 512; do
+    sudo mkdir -p "/usr/share/icons/hicolor/${size}x${size}/apps"
+    sudo cp "$SCRIPT_DIR/GCC_logo.png" "/usr/share/icons/hicolor/${size}x${size}/apps/gaming-command-center.png"
+done
+sudo mkdir -p /usr/share/icons/hicolor/scalable/apps
+sudo cp "$SCRIPT_DIR/GCC_logo.png" /usr/share/icons/hicolor/scalable/apps/gaming-command-center.png
+sudo gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
+echo "  ✅ App icon installed"
+
+# 4. Desktop file → applications
+sudo mkdir -p /usr/share/applications
+sudo tee /usr/share/applications/gaming-command-center.desktop > /dev/null << 'DESKTOP'
+[Desktop Entry]
+Name=Gaming Command Center
+Comment=Linux gaming optimization — CPU CCD parking, GPU overclocking, system setup wizard
+Exec=python3 INSTALLDIR/command-center.py
+Icon=gaming-command-center
+Terminal=false
+Type=Application
+Categories=Game;System;Utility;
+Keywords=gaming;ryzen;cpu;gpu;nvidia;overclock;ccd;gamemode;linux;
+DESKTOP
+
+# Fix the Exec path in the desktop file
+sudo sed -i "s|INSTALLDIR|$SCRIPT_DIR|" /usr/share/applications/gaming-command-center.desktop
+echo "  ✅ Desktop launcher installed"
+
+# 5. Update caches
+sudo update-desktop-database /usr/share/applications/ 2>/dev/null || true
+sudo gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
+
+echo
+echo "✅ Installation complete!"
+echo
+echo "You can now:"
+echo "  • Launch from your app menu → 'Gaming Command Center'"
+echo "  • Or run: python3 $SCRIPT_DIR/command-center.py"
+echo
+echo "🎮 Game Mode will work without password (polkit configured)"
+echo "⚡ Apply Fix buttons in Setup Wizard will work"
+echo
+echo "Enjoy! 🐧🎮"
