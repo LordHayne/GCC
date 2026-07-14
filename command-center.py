@@ -878,23 +878,34 @@ class CommandCenter(Adw.ApplicationWindow):
         sidebar.add_css_class("sidebar")
         sidebar.set_size_request(180, -1)
 
-        # App logo / name at top
-        logo_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        # App logo + name at top
+        logo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         logo_box.set_margin_start(14)
         logo_box.set_margin_end(14)
         logo_box.set_margin_top(16)
         logo_box.set_margin_bottom(16)
 
+        # Logo image (circular, 36px)
+        try:
+            logo_img = Gtk.Image.new_from_file("/home/thomas/.local/share/icons/hicolor/256x256/apps/gaming-command-center.png")
+            logo_img.set_pixel_size(36)
+            logo_box.append(logo_img)
+        except:
+            pass
+
+        # Text column
+        text_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         title = Gtk.Label(label="Gaming")
         title.set_halign(Gtk.Align.START)
         title.add_css_class("sidebar-title")
-        logo_box.append(title)
+        text_col.append(title)
 
         subtitle = Gtk.Label(label="Command Center")
         subtitle.set_halign(Gtk.Align.START)
         subtitle.add_css_class("sidebar-subtitle")
-        logo_box.append(subtitle)
+        text_col.append(subtitle)
 
+        logo_box.append(text_col)
         sidebar.append(logo_box)
 
         # Navigation items
