@@ -1,4 +1,13 @@
 #!/bin/bash
+#
+# Gaming Command Center — Linux gaming system optimisation
+# Copyright (C) 2026 Thomas
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version. See the LICENSE file, or <https://www.gnu.org/licenses/>.
+#
 # gaming-ccd-helper — root helper for Gaming Command Center
 # Called via pkexec from the GUI.
 #
@@ -6,7 +15,12 @@
 #   gaming-ccd-helper park <cpu-list>     e.g. park 6,7,8,9,10,11,18,19,20,21,22,23
 #   gaming-ccd-helper unpark <cpu-list>
 #   gaming-ccd-helper unpark-all
-#   gaming-ccd-helper governor | audio | sata | modprobe | coolbits
+#   gaming-ccd-helper governor | audio | sata
+#
+# Everything here is a runtime sysfs change: it is undone by a reboot, so the
+# polkit action runs without a password. Persistent /etc edits are deliberately
+# NOT in this script — they live in gaming-cc-etc-helper behind an action that
+# does require authentication.
 #
 # The CPU list comes from the GUI, which derives it from the sysfs topology
 # (see topology.py). This script hardcodes no CPU layout — but it does not trust
@@ -114,26 +128,10 @@ case "${1:-}" in
         echo "DONE_SATA"
         ;;
 
-    modprobe)
-        echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1" > /etc/modprobe.d/nvidia.conf
-        echo "DONE_MODPROBE"
-        ;;
-
-    coolbits)
-        mkdir -p /etc/X11/xorg.conf.d
-        cat > /etc/X11/xorg.conf.d/10-nvidia.conf << 'EOF'
-Section "Device"
-    Identifier "NVIDIA"
-    Driver "nvidia"
-    Option "Coolbits" "28"
-EndSection
-EOF
-        echo "DONE_COOLBITS"
-        ;;
-
     *)
         echo "Usage: gaming-ccd-helper park <cpus> | unpark <cpus> | unpark-all |"
-        echo "       governor | audio | sata | modprobe | coolbits"
+        echo "       governor | audio | sata"
+        echo "(persistent /etc changes live in gaming-cc-etc-helper)"
         exit 1
         ;;
 esac

@@ -1,4 +1,13 @@
 #!/bin/bash
+#
+# Gaming Command Center — Linux gaming system optimisation
+# Copyright (C) 2026 Thomas
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version. See the LICENSE file, or <https://www.gnu.org/licenses/>.
+#
 # Gaming Command Center — Installer
 # One script does everything: install files, set permissions, configure polkit
 # Usage: ./install.sh
@@ -20,9 +29,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "📦 Installing system files (requires sudo)..."
 echo
 
-# 1. Helper script → /usr/local/bin
+# 1. Helper scripts → /usr/local/bin
+# Two of them on purpose: runtime tweaks (core parking, governor) run without a
+# password, persistent /etc changes ask for authentication. See the polkit file.
 sudo install -m 755 -o root -g root "$SCRIPT_DIR/gaming-ccd-helper" /usr/local/bin/gaming-ccd-helper
-echo "  ✅ Helper installed → /usr/local/bin/gaming-ccd-helper"
+sudo install -m 755 -o root -g root "$SCRIPT_DIR/gaming-cc-etc-helper" /usr/local/bin/gaming-cc-etc-helper
+echo "  ✅ Helpers installed → /usr/local/bin/gaming-{ccd,cc-etc}-helper"
 
 # 2. Polkit policy → /usr/share/polkit-1/actions/
 # Must be world-readable (0644) — plain `cp` would carry over the repo file's

@@ -7,8 +7,14 @@
   <vendor>Gaming Command Center</vendor>
   <vendor_url>https://github.com/LordHayne/GCC</vendor_url>
 
+  <!--
+    Runtime tweaks: CPU core parking, governor, audio and SATA power saving.
+    All of it is sysfs and all of it is gone after a reboot, so the active
+    local user may do it without typing a password — the same trade-off
+    GameMode makes for its own core parking.
+  -->
   <action id="com.gaming.commandcenter.ccd-helper">
-    <description>Apply Gaming Command Center system tweaks</description>
+    <description>Change CPU core state and power settings</description>
     <message>Authentication is required to change CPU core state and power settings</message>
     <defaults>
       <allow_any>no</allow_any>
@@ -16,6 +22,23 @@
       <allow_active>yes</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/gaming-ccd-helper</annotate>
+  </action>
+
+  <!--
+    Persistent configuration: writes /etc/modprobe.d/nvidia.conf and
+    /etc/X11/xorg.conf.d/10-nvidia.conf. These survive a reboot and affect the
+    whole system, so they ask for admin authentication rather than riding along
+    on the password-free action above.
+  -->
+  <action id="com.gaming.commandcenter.etc-helper">
+    <description>Write persistent NVIDIA configuration files</description>
+    <message>Authentication is required to change system NVIDIA configuration</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/gaming-cc-etc-helper</annotate>
   </action>
 
 </policyconfig>

@@ -1,0 +1,138 @@
+#!/bin/bash
+#
+# Gaming Command Center — Linux gaming system optimisation
+# Copyright (C) 2026 Thomas
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version. See the LICENSE file, or <https://www.gnu.org/licenses/>.
+#
+# gaming-cc-etc-helper — root helper for Gaming Command Center
+#
+# Usage:
+#   gaming-cc-etc-helper modprobe    # NVreg_PreserveVideoMemoryAllocations=1
+#   gaming-cc-etc-helper coolbits    # Option "Coolbits" "28"
+#
+# Everything here writes to /etc and survives a reboot, so it sits behind its
+# own polkit action that asks for admin authentication — unlike core parking,
+# which is a revertible runtime change and stays password-free.
+#
+# These files belong to the user, not to us. The previous version truncated
+# them with `>`, silently destroying any NVIDIA options they had already set.
+# So: back up first, then merge the one setting we care about and leave the
+# rest of the file alone.
+
+set -u
+
+NVIDIA_CONF=/etc/modprobe.d/nvidia.conf
+XORG_DIR=/etc/X11/xorg.conf.d
+XORG_CONF=$XORG_DIR/10-nvidia.conf
+
+die() { echo "ERR: $1" >&2; exit 1; }
+
+# Keep a timestamped copy of a file we are about to change.
+backup() {
+    local f="$1"
+    [ -e "$f" ] || return 0
+    local b="$f.gcc-backup-$(date +%Y%m%d-%H%M%S)"
+    cp -a "$f" "$b" || die "could not back up $f"
+    echo "NOTE: backed up $f -> $b"
+}
+
+case "${1:-}" in
+    modprobe)
+        opt="NVreg_PreserveVideoMemoryAllocations=1"
+
+        if [ ! -e "$NVIDIA_CONF" ]; then
+            mkdir -p "$(dirname "$NVIDIA_CONF")" || die "could not create /etc/modprobe.d"
+            printf '# Written by Gaming Command Center\noptions nvidia %s\n' "$opt" \
+                > "$NVIDIA_CONF" || die "could not write $NVIDIA_CONF"
+            echo "DONE_MODPROBE"
+            exit 0
+        fi
+
+        # Both spellings occur in the wild:
+        #   options nvidia NVreg_PreserveVideoMemoryAllocations=1
+        #   options nvidia "NVreg_PreserveVideoMemoryAllocations=1"
+        if grep -qE 'NVreg_PreserveVideoMemoryAllocations="?1"?([[:space:]]|$)' "$NVIDIA_CONF"; then
+            echo "NOTE: already set, file left untouched"
+            echo "DONE_MODPROBE"
+            exit 0
+        fi
+
+        backup "$NVIDIA_CONF"
+
+        if grep -qE 'NVreg_PreserveVideoMemoryAllocations=' "$NVIDIA_CONF"; then
+            # Set to something other than 1 — correct the digit, keep the quoting.
+            sed -i -E 's/(NVreg_PreserveVideoMemoryAllocations="?)[0-9]+/\11/g' \
+                "$NVIDIA_CONF" || die "could not update $NVIDIA_CONF"
+        else
+            # modprobe.d concatenates several `options nvidia` lines for the same
+            # module, so appending our own leaves the existing ones intact.
+            printf '\n# Added by Gaming Command Center\noptions nvidia %s\n' "$opt" \
+                >> "$NVIDIA_CONF" || die "could not append to $NVIDIA_CONF"
+        fi
+        echo "DONE_MODPROBE"
+        ;;
+
+    coolbits)
+        mkdir -p "$XORG_DIR" || die "could not create $XORG_DIR"
+
+        if [ ! -e "$XORG_CONF" ]; then
+            cat > "$XORG_CONF" << 'EOF' || die "could not write $XORG_CONF"
+# Written by Gaming Command Center
+Section "Device"
+    Identifier "NVIDIA"
+    Driver "nvidia"
+    Option "Coolbits" "28"
+EndSection
+EOF
+            echo "DONE_COOLBITS"
+            exit 0
+        fi
+
+        if grep -qEi '^[[:space:]]*Option[[:space:]]+"Coolbits"[[:space:]]+"28"' "$XORG_CONF"; then
+            echo "NOTE: already set, file left untouched"
+            echo "DONE_COOLBITS"
+            exit 0
+        fi
+
+        backup "$XORG_CONF"
+
+        if grep -qEi '^[[:space:]]*Option[[:space:]]+"Coolbits"' "$XORG_CONF"; then
+            # Wrong Coolbits value — fix it without touching anything else.
+            sed -i -E 's/^([[:space:]]*)Option[[:space:]]+"[Cc]oolbits"[[:space:]]+"[0-9]+"/\1Option "Coolbits" "28"/' \
+                "$XORG_CONF" || die "could not update $XORG_CONF"
+        elif grep -qEi '^[[:space:]]*Section[[:space:]]+"Device"' "$XORG_CONF"; then
+            # The user already has a Device section — add the option inside it.
+            # A second Device section for the same GPU would make Xorg complain.
+            awk '
+                { print }
+                !done && /^[[:space:]]*Section[[:space:]]+"Device"/ {
+                    print "    Option \"Coolbits\" \"28\"   # Gaming Command Center"
+                    done = 1
+                }
+            ' "$XORG_CONF" > "$XORG_CONF.gcc-tmp" \
+                && mv "$XORG_CONF.gcc-tmp" "$XORG_CONF" \
+                || die "could not update $XORG_CONF"
+        else
+            # File exists but has no Device section — ours can stand on its own.
+            cat >> "$XORG_CONF" << 'EOF' || die "could not append to $XORG_CONF"
+
+# Added by Gaming Command Center
+Section "Device"
+    Identifier "NVIDIA"
+    Driver "nvidia"
+    Option "Coolbits" "28"
+EndSection
+EOF
+        fi
+        echo "DONE_COOLBITS"
+        ;;
+
+    *)
+        echo "Usage: gaming-cc-etc-helper modprobe | coolbits"
+        exit 1
+        ;;
+esac

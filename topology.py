@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+#
+# Gaming Command Center — Linux gaming system optimisation
+# Copyright (C) 2026 Thomas
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version. See the LICENSE file, or <https://www.gnu.org/licenses/>.
+#
 """CPU topology detection for Gaming Command Center.
 
 Single source of truth for the CCD layout. The GUI and the system scanner both

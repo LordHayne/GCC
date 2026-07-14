@@ -2,7 +2,7 @@
 
 A Linux GUI tool for gaming system optimization — CPU core management, GPU overclocking, and guided troubleshooting, all in one place.
 
-![Status](https://img.shields.io/badge/status-WIP-orange) ![License](https://img.shields.io/badge/license-TBD-blue) ![Platform](https://img.shields.io/badge/platform-Linux-blue)
+![Status](https://img.shields.io/badge/status-WIP-orange) ![License](https://img.shields.io/badge/license-GPLv3-blue) ![Platform](https://img.shields.io/badge/platform-Linux-blue)
 
 ## What it does
 
@@ -96,9 +96,24 @@ python3 command-center.py
 - AMD Ryzen CPU with 2+ CCDs (for Game Mode)
 - NVIDIA GPU with Coolbits enabled (for OC)
 
+### Permissions
+
+Gaming Command Center asks for root in two clearly separated ways, so the thing
+you do constantly does not cost you a password:
+
+| What | Needs a password? | Why |
+|------|-------------------|-----|
+| Game Mode, governor, audio/SATA power saving | **No** | Runtime `sysfs` changes. A reboot undoes all of them, and you toggle Game Mode every time you play. |
+| NVIDIA modprobe config, Coolbits | **Yes, once** | These write to `/etc` and survive a reboot. An `xorg.conf` can load arbitrary modules as root, so this stays behind admin authentication. |
+
+The `/etc` fixes are one-time setup steps, and both back up any file they touch
+before merging their setting into it — your existing NVIDIA options are kept.
+
 ### License
 
-TBD (probably MIT or GPL)
+[GPL-3.0-or-later](LICENSE). Forks and redistributions must stay open source,
+which is the norm for Linux system tools and keeps the game-fix database
+community-owned.
 
 ### Acknowledgements
 

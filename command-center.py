@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+#
+# Gaming Command Center — Linux gaming system optimisation
+# Copyright (C) 2026 Thomas
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version. See the LICENSE file, or <https://www.gnu.org/licenses/>.
+#
 """
 Gaming Command Center — Kommandozentrale für AMD Ryzen + NVIDIA GPU
 Sidebar-based layout with Dashboard, Game Doctor, Benchmark, and Settings pages.
@@ -87,21 +96,28 @@ class CCDController:
     """Drives the root helper. CPU numbers always come from CPUTopology —
     nothing here assumes a core layout."""
 
-    HELPER = "/usr/local/bin/gaming-ccd-helper"
+    HELPER = "/usr/local/bin/gaming-ccd-helper"          # runtime, no password
+    ETC_HELPER = "/usr/local/bin/gaming-cc-etc-helper"   # persistent, asks for auth
 
     @staticmethod
-    def _run(args, expect, timeout=60):
+    def _run(args, expect, timeout=60, binary=None):
         """Returns (ok, message). The helper prints DONE_* on success and
-        'ERR: reason' on stderr, so a cancelled pkexec dialog reads as failure."""
+        'ERR: reason' on stderr, so a cancelled pkexec dialog reads as failure.
+
+        A helper may also print 'NOTE: ...' lines (e.g. where it put a backup);
+        those are folded into the success message.
+        """
         try:
-            r = subprocess.run(["pkexec", CCDController.HELPER] + args,
+            r = subprocess.run(["pkexec", binary or CCDController.HELPER] + args,
                                capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             return False, "Helper timed out"
         except OSError as e:
             return False, f"Could not run helper: {e}"
-        if expect in (r.stdout or ""):
-            return True, ""
+        out = r.stdout or ""
+        if expect in out:
+            notes = [ln[6:].strip() for ln in out.splitlines() if ln.startswith("NOTE:")]
+            return True, "; ".join(notes)
         err = (r.stderr or "").strip().splitlines()
         reason = err[-1].replace("ERR: ", "") if err else ""
         if r.returncode == 126:
@@ -128,9 +144,19 @@ class CCDController:
 
     @staticmethod
     def helper(action, expect, success_msg):
-        """Run a one-word helper action and turn it into (ok, message)."""
-        ok, err = CCDController._run([action], expect, timeout=30)
-        return (True, success_msg) if ok else (False, err)
+        """Run a one-word runtime action and turn it into (ok, message)."""
+        ok, note = CCDController._run([action], expect, timeout=30)
+        return (True, success_msg) if ok else (False, note)
+
+    @staticmethod
+    def etc_helper(action, expect, success_msg):
+        """Run a persistent /etc action. Prompts for admin authentication, and
+        the helper reports where it put the backup — surface that to the user."""
+        ok, note = CCDController._run([action], expect, timeout=120,
+                                      binary=CCDController.ETC_HELPER)
+        if not ok:
+            return False, note
+        return True, f"{success_msg} ({note})" if note else success_msg
 
 
 class GPUController:
@@ -374,12 +400,12 @@ class GameDoctorPage(Gtk.Box):
                                     "SATA link power set to med_power_with_dipm")
 
     def _fix_modprobe(self):
-        return CCDController.helper("modprobe", "DONE_MODPROBE",
-                                    "NVIDIA modprobe config written — reboot to apply")
+        return CCDController.etc_helper("modprobe", "DONE_MODPROBE",
+                                        "NVIDIA modprobe config written — reboot to apply")
 
     def _fix_coolbits(self):
-        return CCDController.helper("coolbits", "DONE_COOLBITS",
-                                    "Coolbits enabled — restart your session to apply")
+        return CCDController.etc_helper("coolbits", "DONE_COOLBITS",
+                                        "Coolbits enabled — restart your session to apply")
 
     def _fix_game_mode(self):
         topo = CPUTopology()
