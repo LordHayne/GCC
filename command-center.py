@@ -196,37 +196,51 @@ class GPUController:
 
 
 # ============================================================
-# Game Doctor Page (formerly Setup Wizard)
+# System Doctor Page — system-level checks and fixes (formerly Game Doctor)
 # ============================================================
 class GameDoctorPage(Gtk.Box):
-    """Game Doctor page — runs system_scanner.scan_system() and displays results."""
+    """System Doctor page — runs system_scanner.scan_system() and displays results."""
+
+    # What the scanner looks at, grouped for the empty-state preview.
+    CHECK_GROUPS = [
+        ("GPU", ["NVIDIA driver", "GPU P-state", "ReBAR", "Coolbits"]),
+        ("CPU", ["Governor", "CCD / Game Mode"]),
+        ("Gaming tools", ["GameMode", "gamescope", "GE-Proton"]),
+        ("Power & I/O", ["SATA link power", "Audio power save"]),
+        ("Session", ["Wayland / X11", "NVIDIA modprobe", "Monitor"]),
+    ]
 
     def __init__(self, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
 
-        # Scan button at top
+        # Page header, consistent with the other pages
+        head = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        head.set_margin_start(16); head.set_margin_end(16)
+        head.set_margin_top(16); head.set_margin_bottom(8)
+        t = Gtk.Label(label="SYSTEM DOCTOR"); t.add_css_class("page-title"); t.set_halign(Gtk.Align.START)
+        head.append(t)
+        st = Gtk.Label(label="Scan for common Linux gaming issues and fix them with one click")
+        st.add_css_class("page-subtitle"); st.set_halign(Gtk.Align.START)
+        head.append(st)
+        self.append(head)
+
+        # Scan button + status
         top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        top_bar.set_margin_start(16)
-        top_bar.set_margin_end(16)
-        top_bar.set_margin_top(12)
-        top_bar.set_margin_bottom(8)
+        top_bar.set_margin_start(16); top_bar.set_margin_end(16)
+        top_bar.set_margin_top(4); top_bar.set_margin_bottom(8)
 
         self.scan_btn = Gtk.Button(label="Scan System")
         self.scan_btn.add_css_class("btn-apply")
         self.scan_btn.connect("clicked", self.on_scan_clicked)
         top_bar.append(self.scan_btn)
 
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        top_bar.append(spacer)
+        spacer = Gtk.Box(); spacer.set_hexpand(True); top_bar.append(spacer)
 
         self.scan_status_lbl = Gtk.Label(label="")
         self.scan_status_lbl.add_css_class("stat-label")
         top_bar.append(self.scan_status_lbl)
-
         self.append(top_bar)
 
-        # Separator
         self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
         # Scrolled area for results
@@ -242,16 +256,60 @@ class GameDoctorPage(Gtk.Box):
         self.results_box.set_margin_end(10)
         self.results_box.set_margin_top(8)
         self.results_box.set_margin_bottom(8)
-
-        # Placeholder before first scan
-        self.placeholder = Gtk.Label(label='Click "Scan System" to start')
-        self.placeholder.set_markup("<span color='#565f89' size='13'>Click \"Scan System\" to start</span>")
-        self.placeholder.set_margin_top(40)
-        self.results_box.append(self.placeholder)
+        self.results_box.append(self._build_empty_state())
 
         clamp.set_child(self.results_box)
         self.scroll.set_child(clamp)
         self.append(self.scroll)
+
+    def _build_empty_state(self):
+        """Inviting pre-scan state: icon, one line of what it does, and a preview
+        of the check categories so the page isn't just a lone button."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_halign(Gtk.Align.CENTER)
+        box.set_margin_top(36)
+        box.set_margin_bottom(24)
+
+        icon = Gtk.Label()
+        icon.set_markup("<span size='46000'>🩺</span>")
+        box.append(icon)
+
+        headline = Gtk.Label()
+        headline.set_markup("<span size='15000' weight='bold' color='#c0caf5'>Ready to check your system</span>")
+        box.append(headline)
+
+        desc = Gtk.Label(label="15+ checks across your GPU, CPU, gaming tools and "
+                               "power settings — each with a one-click fix.")
+        desc.add_css_class("page-subtitle")
+        desc.set_wrap(True)
+        desc.set_justify(Gtk.Justification.CENTER)
+        desc.set_max_width_chars(48)
+        box.append(desc)
+
+        # Category chips
+        grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        grid.set_margin_top(8)
+        for group, checks in self.CHECK_GROUPS:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            row.set_halign(Gtk.Align.CENTER)
+            gl = Gtk.Label(label=group)
+            gl.add_css_class("doctor-group-label")
+            gl.set_size_request(90, -1)
+            gl.set_xalign(1.0)
+            row.append(gl)
+            for name in checks:
+                chip = Gtk.Label(label=name)
+                chip.add_css_class("doctor-chip")
+                row.append(chip)
+            grid.append(row)
+        box.append(grid)
+
+        hint = Gtk.Label()
+        hint.set_markup("<span color='#565f89' size='11000'>Click “Scan System” above to begin</span>")
+        hint.set_margin_top(10)
+        box.append(hint)
+        return box
 
         # Summary at bottom
         self.summary_lbl = Gtk.Label(label="")
@@ -1010,6 +1068,19 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         .issue-result { font-size: 12px; }
 
+        /* === Empty states (System Doctor, Benchmark) === */
+        .doctor-chip, .empty-chip {
+            background: #1e1f2e; color: #9aa5ce;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 20px; padding: 2px 12px; font-size: 12px;
+        }
+        .doctor-group-label { color: #565f89; font-size: 12px; font-weight: bold; }
+        .empty-headline { color: #c0caf5; }
+        .empty-card {
+            background: #1e1f2e; border-radius: 12px; padding: 12px 16px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
         /* === Sliders === */
         scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
         scale highlight { background: #7aa2f7; border-radius: 3px; }
@@ -1157,7 +1228,7 @@ class CommandCenter(Adw.ApplicationWindow):
         # Game Doctor page
         self.game_doctor = GameDoctorPage()
         self.view_stack.add_titled(
-            self.game_doctor, "doctor", "Game Doctor")
+            self.game_doctor, "doctor", "System Doctor")
 
         # Benchmark page
         self.view_stack.add_titled(
@@ -1220,7 +1291,7 @@ class CommandCenter(Adw.ApplicationWindow):
         nav_entries = [
             ("Dashboard", "dashboard"),
             ("Games", "games"),
-            ("Game Doctor", "doctor"),
+            ("System Doctor", "doctor"),
             ("Benchmark", "benchmark"),
             ("Settings", "settings"),
         ]
@@ -1427,6 +1498,7 @@ class CommandCenter(Adw.ApplicationWindow):
         # Live per-core bars, grouped by CCD, built on demand
         self.bench_results = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.bench_results.set_margin_top(12)
+        self.bench_results.append(self._build_bench_empty())
         content.append(self.bench_results)
         self.bench_rows = {}      # cpu -> {"bar", "val", "row"}
         self.bench_ccd_hdr = {}   # ccd_id -> {"avg", "badge"}
@@ -1443,6 +1515,58 @@ class CommandCenter(Adw.ApplicationWindow):
         page.append(scroll)
 
         return page
+
+    def _build_bench_empty(self):
+        """Pre-run state explaining what the benchmark measures."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_halign(Gtk.Align.CENTER)
+        box.set_margin_top(30)
+
+        icon = Gtk.Label()
+        icon.set_markup("<span size='46000'>🏆</span>")
+        box.append(icon)
+
+        multi = self.topo.ccd_count() > 1
+        head = Gtk.Label()
+        head.add_css_class("empty-headline")
+        head.set_markup("<span size='15000' weight='bold'>"
+                        + ("Which CCD won the silicon lottery?" if multi
+                           else "Silicon benchmark") + "</span>")
+        box.append(head)
+
+        if multi:
+            desc = Gtk.Label(label="Every physical core is loaded one at a time and its "
+                                   "sustained boost clock is measured. The CCD that holds "
+                                   "the higher clock is the better silicon — and becomes the "
+                                   "one Game Mode keeps.")
+        else:
+            desc = Gtk.Label(label="This CPU has a single CCD, so there's nothing to compare. "
+                                   "The benchmark still measures each core's sustained boost "
+                                   "clock if you want to see per-core quality.")
+        desc.add_css_class("page-subtitle")
+        desc.set_wrap(True)
+        desc.set_justify(Gtk.Justification.CENTER)
+        desc.set_max_width_chars(52)
+        box.append(desc)
+
+        meta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        meta.set_halign(Gtk.Align.CENTER)
+        meta.set_margin_top(6)
+        cores = sum(self.topo.core_count(c) for c in self.topo.get_all_ccd_ids())
+        for txt in (f"{self.topo.ccd_count()} CCD" + ("s" if self.topo.ccd_count() != 1 else ""),
+                    f"{cores} cores", "~{}s".format(max(4, cores * 2)),
+                    "forces performance governor"):
+            chip = Gtk.Label(label=txt)
+            chip.add_css_class("empty-chip")
+            meta.append(chip)
+        box.append(meta)
+
+        hint = Gtk.Label()
+        hint.set_markup("<span color='#565f89' size='11000'>Click “Run CCD Benchmark” above to start</span>")
+        hint.set_margin_top(8)
+        box.append(hint)
+        return box
 
     def _build_bench_rows(self):
         """Lay out one bar per physical core, grouped by CCD, ready to fill in
