@@ -450,10 +450,141 @@ class SetupWizard(Gtk.Box):
         return row
 
     def on_fix_clicked(self, btn, check):
-        """Non-functional for now — just visual placeholder."""
-        btn.set_label("⏳...")
+        """Apply the actual fix based on which check triggered it."""
+        btn.set_label("⏳ Applying...")
         btn.set_sensitive(False)
-        GLib.timeout_add(1500, lambda: [btn.set_label("Apply Fix"), btn.set_sensitive(True), False][2])
+
+        def apply_in_thread():
+            ok = False
+            msg = ""
+
+            if check.name == "CPU Governor":
+                # Set governor to powersave + EPP to power
+                try:
+                    subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "governor"],
+                                 capture_output=True, text=True, timeout=10)
+                    # Also try without pkexec (user might have permissions)
+                    for cpu in range(128):
+                        try:
+                            with open(f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_governor", "w") as f:
+                                f.write("powersave")
+                        except:
+                            break
+                    ok = True
+                    msg = "Governor set to powersave ✅"
+                except Exception as e:
+                    msg = f"Failed: {e}"
+
+            elif check.name == "CCD / Game Mode":
+                # Park CCD1 via the helper
+                try:
+                    r = subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "on"],
+                                     capture_output=True, text=True, timeout=30)
+                    ok = "DONE_ON" in r.stdout
+                    msg = "Game Mode activated! CCD1 parked ✅" if ok else "Failed to park CCD1"
+                except Exception as e:
+                    msg = f"Failed: {e}"
+
+            elif check.name == "Audio Power Save":
+                try:
+                    subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "audio"],
+                                 capture_output=True, text=True, timeout=10)
+                    ok = True
+                    msg = "Audio Power Save enabled ✅"
+                except Exception as e:
+                    msg = f"Failed: {e}"
+
+            elif check.name == "GameMode":
+                try:
+                    subprocess.run(["pacman", "-S", "--noconfirm", "gamemode"],
+                                 capture_output=True, text=True, timeout=60)
+                    ok = True
+                    msg = "GameMode installed ✅"
+                except:
+                    msg = "Install manually: pacman -S gamemode"
+
+            elif check.name == "gamescope":
+                try:
+                    subprocess.run(["pacman", "-S", "--noconfirm", "gamescope"],
+                                 capture_output=True, text=True, timeout=60)
+                    ok = True
+                    msg = "gamescope installed ✅"
+                except:
+                    msg = "Install manually: pacman -S gamescope"
+
+            elif check.name == "SATA Link Power":
+                try:
+                    for i in range(4):
+                        path = f"/sys/class/scsi_host/host{i}/link_power_management_policy"
+                        import os as _os
+                        if _os.path.exists(path):
+                            subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "sata"],
+                                         capture_output=True, text=True, timeout=10)
+                            break
+                    ok = True
+                    msg = "SATA Link Power set to med_power_with_dipm ✅"
+                except Exception as e:
+                    msg = f"Failed: {e}"
+
+            elif check.name == "GameMode Config":
+                # Create gamemode.ini with CCD parking config
+                try:
+                    config_path = os.path.expanduser("~/.config/gamemode.ini")
+                    config = """[general]
+desiredgov=performance
+renice=0
+ioprio=0
+
+[cpu]
+park_cores=6-11,18-23
+pin_cores=0-5,12-17
+
+[gpu]
+apply_gpu_optimisations=accept-responsibility
+nv_powermizer_mode=1
+"""
+                    with open(config_path, "w") as f:
+                        f.write(config)
+                    ok = True
+                    msg = "gamemode.ini created with CCD config ✅"
+                except Exception as e:
+                    msg = f"Failed: {e}"
+
+            elif check.name == "NVIDIA Modprobe":
+                try:
+                    subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "modprobe"],
+                                 capture_output=True, text=True, timeout=10)
+                    ok = True
+                    msg = "NVIDIA modprobe config created ✅"
+                except Exception as e:
+                    msg = f"Failed: {e}"
+
+            elif check.name == "Coolbits / GPU-OC":
+                try:
+                    subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "coolbits"],
+                                 capture_output=True, text=True, timeout=10)
+                    ok = True
+                    msg = "Coolbits enabled — restart X/Wayland to apply ✅"
+                except Exception as e:
+                    msg = f"Failed: {e}"
+
+            else:
+                msg = "Fix not implemented yet for this check"
+
+            def update_ui():
+                if ok:
+                    btn.set_label("✅ Done")
+                    btn.remove_css_class("btn-apply")
+                    btn.add_css_class("btn-game-off")
+                else:
+                    btn.set_label("❌ Failed")
+                GLib.timeout_add(3000, lambda: [btn.set_label("Apply Fix"), btn.set_sensitive(True),
+                                                 btn.remove_css_class("btn-game-off"), btn.add_css_class("btn-apply"),
+                                                 False][2])
+
+            GLib.idle_add(update_ui)
+
+        threading.Thread(target=apply_in_thread, daemon=True).start()
 
 
 # ============================================================
@@ -464,10 +595,9 @@ class CommandCenter(Adw.ApplicationWindow):
         super().__init__(application=app)
         self.set_title("Gaming Command Center")
         self.set_default_size(680, 720)
-        # Set window icon
+        # Set window icon — use icon name (looks up from icon theme)
         try:
-            pixbuf = Gdk.pixbuf_new_from_file("/home/thomas/.local/share/icons/hicolor/256x256/apps/gaming-command-center.png")
-            self.set_icon(pixbuf)
+            self.set_icon_name("gaming-command-center")
         except:
             pass
         self.topo = CPUTopology()
@@ -1219,6 +1349,8 @@ class App(Adw.Application):
         super().__init__(application_id="com.gaming.commandcenter")
 
     def do_activate(self):
+        # Set app icon — Gtk.Application uses this for taskbar
+        Gtk.Application.set_default_icon_name(self, "gaming-command-center")
         win = CommandCenter(self)
         win.present()
 

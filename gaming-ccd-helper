@@ -1,39 +1,68 @@
 #!/bin/bash
-# gaming-ccd-helper — Root helper for CCD parking
-# Called via pkexec from Gaming Command Center
-# Usage: gaming-ccd-helper [on|off]
-# on  = park CCD1 (disable cores)
-# off = unpark CCD1 (re-enable cores)
+# gaming-ccd-helper — Root helper for Gaming Command Center
+# Called via pkexec from the GUI
+# Usage: gaming-ccd-helper [on|off|governor|audio|sata|modprobe|coolbits]
 
 CCD1_CPUS="6 7 8 9 10 11 18 19 20 21 22 23"
 
 case "$1" in
   on)
+    # Park CCD1 (disable cores)
     for cpu in $CCD1_CPUS; do
       echo 0 > /sys/devices/system/cpu/cpu$cpu/online 2>/dev/null
     done
-    # Verify
     result=$(cat /sys/devices/system/cpu/cpu6/online 2>/dev/null)
-    if [ "$result" = "0" ]; then
-      echo "DONE_ON"
-    else
-      echo "FAIL_ON"
-    fi
+    if [ "$result" = "0" ]; then echo "DONE_ON"; else echo "FAIL_ON"; fi
     ;;
   off)
+    # Unpark CCD1 (re-enable cores)
     for cpu in $CCD1_CPUS; do
       echo 1 > /sys/devices/system/cpu/cpu$cpu/online 2>/dev/null
     done
-    # Verify
     result=$(cat /sys/devices/system/cpu/cpu6/online 2>/dev/null)
-    if [ "$result" = "1" ]; then
-      echo "DONE_OFF"
-    else
-      echo "FAIL_OFF"
-    fi
+    if [ "$result" = "1" ]; then echo "DONE_OFF"; else echo "FAIL_OFF"; fi
+    ;;
+  governor)
+    # Set CPU governor to powersave + EPP to power
+    for cpu in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor; do
+      echo powersave > "$cpu" 2>/dev/null
+    done
+    for epp in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/energy_performance_preference; do
+      echo power > "$epp" 2>/dev/null
+    done
+    echo "DONE_GOVERNOR"
+    ;;
+  audio)
+    # Enable audio power save
+    echo 1 > /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null
+    echo "DONE_AUDIO"
+    ;;
+  sata)
+    # Set SATA link power management
+    for dev in /sys/class/scsi_host/host*/link_power_management_policy; do
+      echo med_power_with_dipm > "$dev" 2>/dev/null
+    done
+    echo "DONE_SATA"
+    ;;
+  modprobe)
+    # Create NVIDIA modprobe config
+    echo "options nvidia NVreg_PreserveVideoMemoryAllocations=1" > /etc/modprobe.d/nvidia.conf
+    echo "DONE_MODPROBE"
+    ;;
+  coolbits)
+    # Enable Coolbits via xorg.conf.d
+    mkdir -p /etc/X11/xorg.conf.d
+    cat > /etc/X11/xorg.conf.d/10-nvidia.conf << 'EOF'
+Section "Device"
+    Identifier "NVIDIA"
+    Driver "nvidia"
+    Option "Coolbits" "28"
+EndSection
+EOF
+    echo "DONE_COOLBITS"
     ;;
   *)
-    echo "Usage: gaming-ccd-helper [on|off]"
+    echo "Usage: gaming-ccd-helper [on|off|governor|audio|sata|modprobe|coolbits]"
     exit 1
     ;;
 esac
