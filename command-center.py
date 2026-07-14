@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Gaming Command Center — Kommandozentrale für AMD Ryzen + NVIDIA GPU
-Dark themed GUI with CCD-Parking, GPU-OC, and Live Monitoring.
-Now with Setup Wizard tab for system checks.
+Sidebar-based layout with Dashboard, Game Doctor, Benchmark, and Settings pages.
+Dark themed GUI with CCD-Parking, GPU-OC, Live Monitoring, and System Scanner.
 """
 import gi
 gi.require_version('Gtk', '4.0')
@@ -172,6 +172,14 @@ class GPUInfo:
                 self.pstate = parts[8]
                 self.util = int(float(parts[9]))
         except: pass
+        # Query max graphics clock for progress bar
+        try:
+            r2 = subprocess.run(["nvidia-smi", "--query-gpu=clocks.max.gr", "--format=csv,noheader,nounits"],
+                               capture_output=True, text=True, timeout=2)
+            val = r2.stdout.strip()
+            if val and val != "[N/A]":
+                self.max_clock_gr = int(float(val))
+        except: pass
         try:
             r = subprocess.run(["nvidia-settings", "-q", "GPUGraphicsClockOffsetAllPerformanceLevels"],
                               capture_output=True, text=True, timeout=2)
@@ -250,22 +258,22 @@ class GPUController:
 
 
 # ============================================================
-# Setup Wizard Tab
+# Game Doctor Page (formerly Setup Wizard)
 # ============================================================
-class SetupWizard(Gtk.Box):
-    """Setup Wizard tab — runs system_scanner.scan_system() and displays results."""
+class GameDoctorPage(Gtk.Box):
+    """Game Doctor page — runs system_scanner.scan_system() and displays results."""
 
     def __init__(self, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
 
         # Scan button at top
         top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        top_bar.set_margin_start(12)
-        top_bar.set_margin_end(12)
+        top_bar.set_margin_start(16)
+        top_bar.set_margin_end(16)
         top_bar.set_margin_top(12)
         top_bar.set_margin_bottom(8)
 
-        self.scan_btn = Gtk.Button(label="🔍 Scan System")
+        self.scan_btn = Gtk.Button(label="Scan System")
         self.scan_btn.add_css_class("btn-apply")
         self.scan_btn.connect("clicked", self.on_scan_clicked)
         top_bar.append(self.scan_btn)
@@ -286,15 +294,14 @@ class SetupWizard(Gtk.Box):
         # Scrolled area for results
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_vexpand(True)
-        # Enable scrolling — don't block natural height
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
         clamp = Adw.Clamp()
-        clamp.set_maximum_size(640)
+        clamp.set_maximum_size(700)
 
         self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.results_box.set_margin_start(6)
-        self.results_box.set_margin_end(6)
+        self.results_box.set_margin_start(10)
+        self.results_box.set_margin_end(10)
         self.results_box.set_margin_top(8)
         self.results_box.set_margin_bottom(8)
 
@@ -322,7 +329,7 @@ class SetupWizard(Gtk.Box):
             return
         self.scanning = True
         self.scan_btn.set_sensitive(False)
-        self.scan_btn.set_label("⏳ Scanning...")
+        self.scan_btn.set_label("Scanning...")
         self.scan_status_lbl.set_label("Scanning system...")
 
         # Clear old results
@@ -351,7 +358,7 @@ class SetupWizard(Gtk.Box):
     def display_results(self, checks):
         self.scanning = False
         self.scan_btn.set_sensitive(True)
-        self.scan_btn.set_label("🔍 Scan System")
+        self.scan_btn.set_label("Scan System")
         self.scan_status_lbl.set_label("Scan complete")
 
         # Clear
@@ -380,46 +387,43 @@ class SetupWizard(Gtk.Box):
         summary_text = f"{ok_count} OK, {warn_count} Warnings, {info_count} Info"
         if warn_count > 0:
             self.summary_lbl.set_markup(
-                f"<span color='#e0af68' weight='bold'>⚠️ {summary_text}</span>")
+                f"<span color='#e0af68' weight='bold'>  {summary_text}</span>")
         elif ok_count > 0:
             self.summary_lbl.set_markup(
-                f"<span color='#9ece6a' weight='bold'>✅ {summary_text}</span>")
+                f"<span color='#9ece6a' weight='bold'>  {summary_text}</span>")
         else:
             self.summary_lbl.set_markup(
-                f"<span color='#7aa2f7' weight='bold'>ℹ️ {summary_text}</span>")
+                f"<span color='#7aa2f7' weight='bold'>  {summary_text}</span>")
 
     def _build_check_row(self, check):
         """Build a single check result row with visible card background."""
-        # Use a horizontal box with visible background
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         row.add_css_class("wizard-row")
         row.set_margin_start(8)
         row.set_margin_end(8)
         row.set_margin_top(3)
-        row.set_margin_bottom(3)
+        row.set_margin_bottom(0)
 
-        # Status icon — plain label, no markup
-        icons = {"ok": "✅", "warning": "⚠️", "info": "ℹ️"}
-        icon_lbl = Gtk.Label(label=icons.get(check.status, "ℹ️"))
+        # Status icon
+        icons = {"ok": "OK", "warning": "!", "info": "i"}
+        icon_lbl = Gtk.Label(label=icons.get(check.status, "i"))
         icon_lbl.set_size_request(28, -1)
         icon_lbl.set_xalign(0.5)
         icon_lbl.set_valign(Gtk.Align.START)
         icon_lbl.set_margin_top(4)
         row.append(icon_lbl)
 
-        # Text column — use a vertical box with clear labels
+        # Text column
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
         text_box.set_hexpand(True)
         text_box.set_valign(Gtk.Align.CENTER)
 
-        # Name — bold, using CSS class instead of markup
         name_lbl = Gtk.Label(label=check.name)
         name_lbl.set_halign(Gtk.Align.START)
         name_lbl.set_xalign(0)
         name_lbl.add_css_class("wizard-name")
         text_box.append(name_lbl)
 
-        # Message — plain label
         msg_lbl = Gtk.Label(label=check.message)
         msg_lbl.set_halign(Gtk.Align.START)
         msg_lbl.set_xalign(0)
@@ -429,7 +433,7 @@ class SetupWizard(Gtk.Box):
 
         # Fix hint for warnings
         if check.fix_message and check.status == "warning":
-            fix_lbl = Gtk.Label(label=f"→ {check.fix_message}")
+            fix_lbl = Gtk.Label(label=f"-> {check.fix_message}")
             fix_lbl.set_halign(Gtk.Align.START)
             fix_lbl.set_xalign(0)
             fix_lbl.set_wrap(True)
@@ -451,7 +455,7 @@ class SetupWizard(Gtk.Box):
 
     def on_fix_clicked(self, btn, check):
         """Apply the actual fix based on which check triggered it."""
-        btn.set_label("⏳ Applying...")
+        btn.set_label("Applying...")
         btn.set_sensitive(False)
 
         def apply_in_thread():
@@ -459,11 +463,9 @@ class SetupWizard(Gtk.Box):
             msg = ""
 
             if check.name == "CPU Governor":
-                # Set governor to powersave + EPP to power
                 try:
                     subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "governor"],
                                  capture_output=True, text=True, timeout=10)
-                    # Also try without pkexec (user might have permissions)
                     for cpu in range(128):
                         try:
                             with open(f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_governor", "w") as f:
@@ -471,17 +473,16 @@ class SetupWizard(Gtk.Box):
                         except:
                             break
                     ok = True
-                    msg = "Governor set to powersave ✅"
+                    msg = "Governor set to powersave"
                 except Exception as e:
                     msg = f"Failed: {e}"
 
             elif check.name == "CCD / Game Mode":
-                # Park CCD1 via the helper
                 try:
                     r = subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "on"],
                                      capture_output=True, text=True, timeout=30)
                     ok = "DONE_ON" in r.stdout
-                    msg = "Game Mode activated! CCD1 parked ✅" if ok else "Failed to park CCD1"
+                    msg = "Game Mode activated! CCD1 parked" if ok else "Failed to park CCD1"
                 except Exception as e:
                     msg = f"Failed: {e}"
 
@@ -490,7 +491,7 @@ class SetupWizard(Gtk.Box):
                     subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "audio"],
                                  capture_output=True, text=True, timeout=10)
                     ok = True
-                    msg = "Audio Power Save enabled ✅"
+                    msg = "Audio Power Save enabled"
                 except Exception as e:
                     msg = f"Failed: {e}"
 
@@ -499,7 +500,7 @@ class SetupWizard(Gtk.Box):
                     subprocess.run(["pacman", "-S", "--noconfirm", "gamemode"],
                                  capture_output=True, text=True, timeout=60)
                     ok = True
-                    msg = "GameMode installed ✅"
+                    msg = "GameMode installed"
                 except:
                     msg = "Install manually: pacman -S gamemode"
 
@@ -508,7 +509,7 @@ class SetupWizard(Gtk.Box):
                     subprocess.run(["pacman", "-S", "--noconfirm", "gamescope"],
                                  capture_output=True, text=True, timeout=60)
                     ok = True
-                    msg = "gamescope installed ✅"
+                    msg = "gamescope installed"
                 except:
                     msg = "Install manually: pacman -S gamescope"
 
@@ -517,17 +518,16 @@ class SetupWizard(Gtk.Box):
                     for i in range(4):
                         path = f"/sys/class/scsi_host/host{i}/link_power_management_policy"
                         import os as _os
-                        if _os.path.exists(path):
+                        if _os.exists(path):
                             subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "sata"],
                                          capture_output=True, text=True, timeout=10)
                             break
                     ok = True
-                    msg = "SATA Link Power set to med_power_with_dipm ✅"
+                    msg = "SATA Link Power set to med_power_with_dipm"
                 except Exception as e:
                     msg = f"Failed: {e}"
 
             elif check.name == "GameMode Config":
-                # Create gamemode.ini with CCD parking config
                 try:
                     config_path = os.path.expanduser("~/.config/gamemode.ini")
                     config = """[general]
@@ -546,7 +546,7 @@ nv_powermizer_mode=1
                     with open(config_path, "w") as f:
                         f.write(config)
                     ok = True
-                    msg = "gamemode.ini created with CCD config ✅"
+                    msg = "gamemode.ini created with CCD config"
                 except Exception as e:
                     msg = f"Failed: {e}"
 
@@ -555,7 +555,7 @@ nv_powermizer_mode=1
                     subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "modprobe"],
                                  capture_output=True, text=True, timeout=10)
                     ok = True
-                    msg = "NVIDIA modprobe config created ✅"
+                    msg = "NVIDIA modprobe config created"
                 except Exception as e:
                     msg = f"Failed: {e}"
 
@@ -564,7 +564,7 @@ nv_powermizer_mode=1
                     subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "coolbits"],
                                  capture_output=True, text=True, timeout=10)
                     ok = True
-                    msg = "Coolbits enabled — restart X/Wayland to apply ✅"
+                    msg = "Coolbits enabled - restart X/Wayland to apply"
                 except Exception as e:
                     msg = f"Failed: {e}"
 
@@ -573,11 +573,11 @@ nv_powermizer_mode=1
 
             def update_ui():
                 if ok:
-                    btn.set_label("✅ Done")
+                    btn.set_label("Done")
                     btn.remove_css_class("btn-apply")
                     btn.add_css_class("btn-game-off")
                 else:
-                    btn.set_label("❌ Failed")
+                    btn.set_label("Failed")
                 GLib.timeout_add(3000, lambda: [btn.set_label("Apply Fix"), btn.set_sensitive(True),
                                                  btn.remove_css_class("btn-game-off"), btn.add_css_class("btn-apply"),
                                                  False][2])
@@ -594,7 +594,7 @@ class CommandCenter(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_title("Gaming Command Center")
-        self.set_default_size(680, 720)
+        self.set_default_size(960, 680)
         self.topo = CPUTopology()
         self.gpu = GPUInfo()
         self.benching = False
@@ -604,6 +604,35 @@ class CommandCenter(Adw.ApplicationWindow):
         manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
 
         css = """
+        /* === Sidebar === */
+        .sidebar { background: #16161e; }
+        .sidebar-item {
+            padding: 10px 12px;
+            border-radius: 8px;
+            color: #565f89;
+        }
+        .sidebar-item:hover {
+            background: rgba(255,255,255,0.04);
+            color: #a9b1d6;
+        }
+        .sidebar-item-active {
+            background: #24253b;
+            color: #c0caf5;
+        }
+        .sidebar-title { font-size: 16px; font-weight: bold; color: #c0caf5; }
+        .sidebar-subtitle { font-size: 10px; color: #565f89; }
+        .sidebar-footer { font-size: 9px; color: #565f89; }
+
+        /* === Page headers === */
+        .page-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #c0caf5;
+            letter-spacing: 2px;
+        }
+        .page-subtitle { font-size: 10px; color: #565f89; }
+
+        /* === Stat tiles === */
         .stat-tile {
             background: #24253b;
             border-radius: 10px;
@@ -616,7 +645,7 @@ class CommandCenter(Adw.ApplicationWindow):
         .stat-value-orange { font-size: 22px; font-weight: 800; color: #e0af68; }
         .stat-label { font-size: 10px; color: #565f89; text-transform: uppercase; letter-spacing: 1px; }
 
-        /* CCD cards — simplified */
+        /* === CCD cards === */
         .ccd-card {
             background: #24253b;
             border-radius: 14px;
@@ -655,6 +684,7 @@ class CommandCenter(Adw.ApplicationWindow):
             margin-top: 14px; margin-bottom: 2px;
         }
 
+        /* === GPU card === */
         .gpu-card {
             background: #1f2335;
             border-radius: 14px;
@@ -665,6 +695,7 @@ class CommandCenter(Adw.ApplicationWindow):
         progressbar trough { background: #1a1b26; border-radius: 4px; min-height: 6px; }
         progressbar progress { background: #7aa2f7; border-radius: 4px; }
 
+        /* === Buttons === */
         .btn-game-on {
             background: linear-gradient(135deg, #e0af68, #f7768e);
             color: #1a1b26; font-weight: 700;
@@ -685,18 +716,22 @@ class CommandCenter(Adw.ApplicationWindow):
             border: 1px solid rgba(255,255,255,0.06);
         }
 
+        /* === Sliders === */
         scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
         scale highlight { background: #7aa2f7; border-radius: 3px; }
         scale slider {
             background: #7aa2f7; min-width: 16px; min-height: 16px;
             border-radius: 50%; box-shadow: 0 0 8px rgba(122,162,247,0.3);
         }
+        scale { margin-top: 4px; margin-bottom: 4px; }
 
+        /* === Dropdown === */
         dropdown {
             background: #1a1b26; border-radius: 8px;
             border: 1px solid rgba(255,255,255,0.06);
         }
 
+        /* === Banners === */
         .banner-gaming {
             background: linear-gradient(90deg, rgba(224,175,104,0.1), rgba(247,118,142,0.1));
             border: 1px solid rgba(224,175,104,0.15); color: #e0af68;
@@ -708,15 +743,13 @@ class CommandCenter(Adw.ApplicationWindow):
             border-radius: 10px; padding: 8px 14px; font-weight: 600;
         }
 
-        /* Benchmark progress bar */
+        /* === Benchmark === */
         .bench-progress { margin-top: 6px; }
 
-        /* Scroll fix: prevent scroll from changing sliders */
-        scale { margin-top: 4px; margin-bottom: 4px; }
-
+        /* === Separator === */
         separator { background: rgba(255,255,255,0.04); }
 
-        /* Wizard check rows */
+        /* === Wizard / Game Doctor rows === */
         .wizard-row {
             background: #24253b;
             border-radius: 10px;
@@ -727,7 +760,6 @@ class CommandCenter(Adw.ApplicationWindow):
         .wizard-msg { font-size: 11px; color: #a9b1d6; }
         .wizard-fix { font-size: 10px; color: #e0af68; }
 
-        /* Setup Wizard styling */
         .scan-row {
             background: #24253b;
             border-radius: 8px;
@@ -749,9 +781,7 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         .scan-summary {
             font-size: 13px; font-weight: 700;
-            padding: 10px 16px;
-            border-radius: 10px;
-            margin-top: 8px;
+            padding: 10px 16px; border-radius: 10px; margin-top: 8px;
         }
         .scan-summary-warn {
             background: rgba(224,175,104,0.1);
@@ -770,7 +800,10 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         """
         provider = Gtk.CssProvider()
-        provider.load_from_data(css.encode())
+        try:
+            provider.load_from_string(css)
+        except (AttributeError, TypeError):
+            provider.load_from_data(css.encode())
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
@@ -780,114 +813,320 @@ class CommandCenter(Adw.ApplicationWindow):
         self.refresh()
         GLib.timeout_add(1500, self.refresh)
 
+    # ============================================================
+    # UI Construction
+    # ============================================================
     def build_ui(self):
-        # Main vertical box for the whole window
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        header = Adw.HeaderBar()
-        header.add_css_class("flat")
+        """Build the main window: sidebar + content area."""
+        main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.set_content(main_box)
-        main_box.append(header)
 
-        # Adw.ViewSwitcher + Adw.ViewStack for tabbed interface
+        # Sidebar
+        sidebar = self._build_sidebar()
+        main_box.append(sidebar)
+
+        # Vertical separator
+        sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        main_box.append(sep)
+
+        # Content area
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content_box.set_hexpand(True)
+
+        # ViewStack for page switching
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
 
-        # --- Dashboard page ---
-        dashboard_page = self.view_stack.add_titled(
-            self._build_dashboard_content(), "dashboard", "Dashboard")
+        # Dashboard page
+        self.view_stack.add_titled(
+            self._build_dashboard_page(), "dashboard", "Dashboard")
 
-        # --- Setup Wizard page ---
-        self.setup_wizard = SetupWizard()
-        wizard_page = self.view_stack.add_titled(
-            self.setup_wizard, "wizard", "Setup Wizard")
+        # Game Doctor page
+        self.game_doctor = GameDoctorPage()
+        self.view_stack.add_titled(
+            self.game_doctor, "doctor", "Game Doctor")
 
-        # ViewSwitcher bar (in header area, below headerbar)
-        switcher_bar = Adw.ViewSwitcherBar()
-        switcher_bar.set_stack(self.view_stack)
-        switcher_bar.set_reveal(True)
+        # Benchmark page
+        self.view_stack.add_titled(
+            self._build_benchmark_page(), "benchmark", "Benchmark")
 
-        main_box.append(self.view_stack)
-        main_box.append(switcher_bar)
+        # Settings page
+        self.view_stack.add_titled(
+            self._build_settings_page(), "settings", "Settings")
 
-    def _build_dashboard_content(self):
-        """Build the existing Dashboard UI (formerly build_ui content)."""
-        clamp = Adw.Clamp()
-        clamp.set_maximum_size(640)
+        content_box.append(self.view_stack)
+        main_box.append(content_box)
 
+        # Default to Dashboard
+        self.view_stack.set_visible_child_name("dashboard")
+
+    # ============================================================
+    # Sidebar
+    # ============================================================
+    def _build_sidebar(self):
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        sidebar.add_css_class("sidebar")
+        sidebar.set_size_request(180, -1)
+
+        # App logo / name at top
+        logo_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        logo_box.set_margin_start(14)
+        logo_box.set_margin_end(14)
+        logo_box.set_margin_top(16)
+        logo_box.set_margin_bottom(16)
+
+        title = Gtk.Label(label="Gaming")
+        title.set_halign(Gtk.Align.START)
+        title.add_css_class("sidebar-title")
+        logo_box.append(title)
+
+        subtitle = Gtk.Label(label="Command Center")
+        subtitle.set_halign(Gtk.Align.START)
+        subtitle.add_css_class("sidebar-subtitle")
+        logo_box.append(subtitle)
+
+        sidebar.append(logo_box)
+
+        # Navigation items
+        nav_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        nav_box.set_margin_start(8)
+        nav_box.set_margin_end(8)
+
+        self.sidebar_items = {}
+        nav_entries = [
+            ("Dashboard", "dashboard"),
+            ("Game Doctor", "doctor"),
+            ("Benchmark", "benchmark"),
+            ("Settings", "settings"),
+        ]
+        for label, page_name in nav_entries:
+            item = self._make_sidebar_item(label, page_name)
+            nav_box.append(item)
+            self.sidebar_items[page_name] = item
+
+        sidebar.append(nav_box)
+
+        # Spacer to push footer to bottom
+        spacer = Gtk.Box()
+        spacer.set_vexpand(True)
+        sidebar.append(spacer)
+
+        # Status footer at bottom
+        footer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        footer_box.set_margin_start(14)
+        footer_box.set_margin_end(14)
+        footer_box.set_margin_top(8)
+        footer_box.set_margin_bottom(14)
+
+        self.status_footer_lbl = Gtk.Label(label="")
+        self.status_footer_lbl.set_halign(Gtk.Align.START)
+        self.status_footer_lbl.set_markup(
+            "<span color='#565f89'>  System Ready</span>")
+        footer_box.append(self.status_footer_lbl)
+
+        sidebar.append(footer_box)
+
+        return sidebar
+
+    def _make_sidebar_item(self, label_text, page_name):
+        """Create a clickable sidebar navigation item."""
+        item = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        item.add_css_class("sidebar-item")
+
+        lbl = Gtk.Label(label=label_text)
+        lbl.set_halign(Gtk.Align.START)
+        item.append(lbl)
+        item._label = lbl
+
+        gesture = Gtk.GestureClick()
+        gesture.connect("pressed", lambda *args: self.switch_page(page_name))
+        item.add_controller(gesture)
+
+        return item
+
+    def switch_page(self, page_name):
+        """Switch the ViewStack to the selected page and update sidebar CSS."""
+        self.view_stack.set_visible_child_name(page_name)
+        for name, item in self.sidebar_items.items():
+            if name == page_name:
+                item.add_css_class("sidebar-item-active")
+            else:
+                item.remove_css_class("sidebar-item-active")
+
+    # ============================================================
+    # Page Header Helper
+    # ============================================================
+    def _page_header(self, title, subtitle=""):
+        header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        header.set_margin_start(16)
+        header.set_margin_end(16)
+        header.set_margin_top(16)
+        header.set_margin_bottom(8)
+
+        title_lbl = Gtk.Label(label=title)
+        title_lbl.set_halign(Gtk.Align.START)
+        title_lbl.add_css_class("page-title")
+        header.append(title_lbl)
+
+        if subtitle:
+            sub_lbl = Gtk.Label(label=subtitle)
+            sub_lbl.set_halign(Gtk.Align.START)
+            sub_lbl.add_css_class("page-subtitle")
+            header.append(sub_lbl)
+
+        return header
+
+    # ============================================================
+    # Dashboard Page (3-column layout)
+    # ============================================================
+    def _build_dashboard_page(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        # Top header
+        cpu_name = self.topo.get_cpu_name()
+        gpu_name = self.gpu.name if self.gpu.name else "NVIDIA GPU"
+        specs_text = f"{cpu_name}  -  {gpu_name}  -  CachyOS / Wayland"
+        page.append(self._page_header("DASHBOARD", specs_text))
+        page.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        # Scrollable 3-column content
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
-        scroll.set_propagate_natural_height(False)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        content.set_margin_start(6)
-        content.set_margin_end(6)
-        content.set_margin_bottom(20)
-        clamp.set_child(content)
-        scroll.set_child(clamp)
+        content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        content.set_margin_start(16)
+        content.set_margin_end(16)
+        content.set_margin_top(12)
+        content.set_margin_bottom(16)
 
-        # CPU name
-        cpu_name = self.topo.get_cpu_name()
-        name_lbl = Gtk.Label(label=cpu_name)
-        name_lbl.set_markup(f"<span size='16' weight='bold' color='#c0caf5'>{cpu_name}</span>")
-        name_lbl.set_halign(Gtk.Align.START)
-        name_lbl.set_margin_top(8)
-        content.append(name_lbl)
+        # --- Center-left column: CPU stats + CCD cards + Game Mode ---
+        left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left_col.set_hexpand(True)
 
         # Status banner
         self.banner = Gtk.Label(label="")
         self.banner.set_halign(Gtk.Align.START)
-        content.append(self.banner)
+        left_col.append(self.banner)
 
-        # CPU stats
+        # CPU stats tiles (Cores, Clock, Temp, Governor)
         stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        stats.set_margin_top(8)
+        stats.set_margin_top(4)
         stats.set_homogeneous(True)
         self.lbl_threads = self._stat_tile(stats, "Cores", "24", "blue")
         self.lbl_freq = self._stat_tile(stats, "Clock", "---", "orange")
-        self.lbl_temp = self._stat_tile(stats, "Temp", "--°", "green")
-        content.append(stats)
+        self.lbl_temp = self._stat_tile(stats, "Temp", "--", "green")
+        self.lbl_governor = self._stat_tile(stats, "Governor", "---", "")
+        left_col.append(stats)
 
         # CCD section
-        content.append(self._section_header("CPU CCDs"))
+        left_col.append(self._section_header("CPU CCDs"))
         self.ccd_cards = {}
         for ccd_id in self.topo.get_all_ccd_ids():
             card = self._build_ccd_card(ccd_id)
-            content.append(card)
+            left_col.append(card)
             self.ccd_cards[ccd_id] = card
 
         # Game Mode button
-        self.gm_btn = Gtk.Button(label="🎮 Enable Game Mode")
+        self.gm_btn = Gtk.Button(label="Enable Game Mode")
         self.gm_btn.set_margin_top(8)
         self.gm_btn.add_css_class("btn-game-on")
         self.gm_btn.connect("clicked", self.on_toggle_gm)
-        content.append(self.gm_btn)
+        left_col.append(self.gm_btn)
 
-        # Benchmark
-        self.bench_btn = Gtk.Button(label="⚡ Run CCD Benchmark")
-        self.bench_btn.set_margin_top(4)
+        content.append(left_col)
+
+        # --- Right column: GPU monitoring + Overclocking ---
+        right_col = self._build_gpu_panel()
+        content.append(right_col)
+
+        scroll.set_child(content)
+        page.append(scroll)
+
+        return page
+
+    # ============================================================
+    # Benchmark Page
+    # ============================================================
+    def _build_benchmark_page(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        page.append(self._page_header(
+            "BENCHMARK",
+            "Test each CPU core to find the best CCD for gaming"))
+        page.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        # Scrollable content
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_vexpand(True)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        content.set_margin_start(16)
+        content.set_margin_end(16)
+        content.set_margin_top(16)
+        content.set_margin_bottom(16)
+
+        # Run button
+        self.bench_btn = Gtk.Button(label="Run CCD Benchmark")
         self.bench_btn.add_css_class("btn-bench")
+        self.bench_btn.set_halign(Gtk.Align.START)
         self.bench_btn.connect("clicked", self.on_benchmark)
         content.append(self.bench_btn)
 
-        # Benchmark progress bar (hidden by default)
+        # Progress bar
         self.bench_progress = Gtk.ProgressBar()
-        self.bench_progress.set_margin_top(4)
+        self.bench_progress.set_margin_top(8)
         self.bench_progress.set_visible(False)
         content.append(self.bench_progress)
 
+        # Results label
         self.bench_label = Gtk.Label(label="")
         self.bench_label.set_wrap(True)
-        self.bench_label.set_margin_top(4)
+        self.bench_label.set_halign(Gtk.Align.START)
+        self.bench_label.set_xalign(0)
+        self.bench_label.set_margin_top(8)
         content.append(self.bench_label)
 
-        content.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        scroll.set_child(content)
+        page.append(scroll)
 
-        # GPU section
-        content.append(self._section_header("🎨 NVIDIA GPU"))
-        content.append(self._build_gpu_card())
+        return page
 
-        return scroll
+    # ============================================================
+    # Settings Page
+    # ============================================================
+    def _build_settings_page(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
+        page.append(self._page_header("SETTINGS"))
+        page.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        # Placeholder
+        placeholder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        placeholder.set_valign(Gtk.Align.CENTER)
+        placeholder.set_halign(Gtk.Align.CENTER)
+        placeholder.set_vexpand(True)
+
+        icon = Gtk.Label(label="")
+        icon.set_markup("<span size='48000' color='#565f89'>\u2699</span>")
+        placeholder.append(icon)
+
+        coming = Gtk.Label(label="Coming soon")
+        coming.set_markup(
+            "<span size='16' weight='bold' color='#565f89'>Coming soon</span>")
+        placeholder.append(coming)
+
+        desc = Gtk.Label(label="")
+        desc.set_markup(
+            "<span size='11' color='#565f89'>Settings will be available in a future update</span>")
+        placeholder.append(desc)
+
+        page.append(placeholder)
+
+        return page
+
+    # ============================================================
+    # UI Building Helpers
+    # ============================================================
     def _section_header(self, text):
         lbl = Gtk.Label(label=text)
         lbl.set_halign(Gtk.Align.START)
@@ -910,7 +1149,7 @@ class CommandCenter(Adw.ApplicationWindow):
         return v
 
     def _build_ccd_card(self, ccd_id):
-        """Simplified CCD card: just name, badge, core dots — no per-core freq labels"""
+        """Simplified CCD card: name, badge, core dots, avg freq."""
         cpus = self.topo.get_ccd_cpus(ccd_id)
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         card.add_css_class("ccd-card")
@@ -935,7 +1174,7 @@ class CommandCenter(Adw.ApplicationWindow):
         title_row.append(count_lbl)
         card.append(title_row)
 
-        # Core dots — clean, no freq numbers
+        # Core dots
         cores_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         cores_box.set_margin_top(2)
         for cpu in sorted(cpus):
@@ -946,7 +1185,7 @@ class CommandCenter(Adw.ApplicationWindow):
             cores_box.append(dot)
         card.append(cores_box)
 
-        # Single avg freq line (not per-core)
+        # Avg freq line
         avg_freq_lbl = Gtk.Label(label="---")
         avg_freq_lbl.set_halign(Gtk.Align.START)
         avg_freq_lbl.add_css_class("stat-label")
@@ -957,43 +1196,60 @@ class CommandCenter(Adw.ApplicationWindow):
         card._avg_freq = avg_freq_lbl
         return card
 
-    def _build_gpu_card(self):
+    def _build_gpu_panel(self):
+        """Build the right-column GPU panel with monitoring + overclocking."""
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        panel.set_size_request(290, -1)
+        panel.set_hexpand(False)
+
         gpu_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         gpu_card.add_css_class("gpu-card")
-        gpu_card.set_margin_top(4)
 
-        self.gpu_name_lbl = Gtk.Label(label=self.gpu.name)
-        self.gpu_name_lbl.set_markup(f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name}</span>")
+        # GPU name
+        self.gpu_name_lbl = Gtk.Label(label=self.gpu.name or "NVIDIA GPU")
+        self.gpu_name_lbl.set_markup(
+            f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name or 'NVIDIA GPU'}</span>")
         self.gpu_name_lbl.set_halign(Gtk.Align.START)
         gpu_card.append(self.gpu_name_lbl)
 
-        gpu_stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        gpu_stats.set_homogeneous(True)
-        gpu_stats.set_margin_top(6)
-        self.gpu_clock_lbl = self._stat_tile(gpu_stats, "Core", "---", "blue")
-        self.gpu_mem_lbl = self._stat_tile(gpu_stats, "Memory", "---", "")
-        self.gpu_power_lbl = self._stat_tile(gpu_stats, "Power", "---", "orange")
-        self.gpu_temp_lbl = self._stat_tile(gpu_stats, "Temp", "---", "green")
-        gpu_card.append(gpu_stats)
+        # GPU stats row 1: Core, Memory, Power
+        gpu_stats1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        gpu_stats1.set_homogeneous(True)
+        gpu_stats1.set_margin_top(6)
+        self.gpu_clock_lbl = self._stat_tile(gpu_stats1, "Core", "---", "blue")
+        self.gpu_mem_lbl = self._stat_tile(gpu_stats1, "Memory", "---", "")
+        self.gpu_power_lbl = self._stat_tile(gpu_stats1, "Power", "---", "orange")
+        gpu_card.append(gpu_stats1)
 
+        # GPU stats row 2: Temp, VRAM
+        gpu_stats2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        gpu_stats2.set_homogeneous(True)
+        gpu_stats2.set_margin_top(4)
+        self.gpu_temp_lbl = self._stat_tile(gpu_stats2, "Temp", "---", "green")
+        self.gpu_vram_lbl = self._stat_tile(gpu_stats2, "VRAM", "---", "")
+        gpu_card.append(gpu_stats2)
+
+        # Info label (P-State, Util, Power Limit)
         self.gpu_info_lbl = Gtk.Label(label="")
         self.gpu_info_lbl.set_halign(Gtk.Align.START)
         self.gpu_info_lbl.add_css_class("stat-label")
         self.gpu_info_lbl.set_margin_top(4)
         gpu_card.append(self.gpu_info_lbl)
 
+        # Clock progress bar
         self.gpu_clock_bar = Gtk.ProgressBar()
         self.gpu_clock_bar.set_margin_top(6)
         gpu_card.append(self.gpu_clock_bar)
 
         # OC Section
         oc_title = Gtk.Label(label="Overclocking")
-        oc_title.set_markup("<span weight='bold' color='#7aa2f7' size='12'>⚡ Overclocking</span>")
+        oc_title.set_markup(
+            "<span weight='bold' color='#7aa2f7' size='12'>Overclocking</span>")
         oc_title.set_halign(Gtk.Align.START)
         oc_title.set_margin_top(10)
         gpu_card.append(oc_title)
 
-        # Core offset
+        # Core offset slider
         gr_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         gr_row.set_margin_top(6)
         gr_lbl = Gtk.Label(label="Core")
@@ -1003,7 +1259,6 @@ class CommandCenter(Adw.ApplicationWindow):
         self.gr_slider.set_hexpand(True)
         self.gr_slider.set_value(0)
         self.gr_slider.connect("value-changed", self.on_gr_slider)
-        # FIX: block mouse wheel from changing slider
         scroll_ctrl_gr = Gtk.EventControllerScroll()
         scroll_ctrl_gr.set_flags(Gtk.EventControllerScrollFlags.VERTICAL)
         scroll_ctrl_gr.connect("scroll", lambda c, dx, dy: True)
@@ -1015,7 +1270,7 @@ class CommandCenter(Adw.ApplicationWindow):
         gr_row.append(self.gr_value_lbl)
         gpu_card.append(gr_row)
 
-        # VRAM offset
+        # VRAM offset slider
         mem_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         mem_row.set_margin_top(4)
         mem_lbl = Gtk.Label(label="VRAM")
@@ -1025,7 +1280,6 @@ class CommandCenter(Adw.ApplicationWindow):
         self.mem_slider.set_hexpand(True)
         self.mem_slider.set_value(0)
         self.mem_slider.connect("value-changed", self.on_mem_slider)
-        # FIX: block mouse wheel from changing slider
         scroll_ctrl_mem = Gtk.EventControllerScroll()
         scroll_ctrl_mem.set_flags(Gtk.EventControllerScrollFlags.VERTICAL)
         scroll_ctrl_mem.connect("scroll", lambda c, dx, dy: True)
@@ -1037,19 +1291,20 @@ class CommandCenter(Adw.ApplicationWindow):
         mem_row.append(self.mem_value_lbl)
         gpu_card.append(mem_row)
 
-        # PowerMizer
+        # PowerMizer dropdown
         pm_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         pm_row.set_margin_top(6)
         pm_lbl = Gtk.Label(label="PowerMizer")
         pm_lbl.set_markup("<span color='#c0caf5'>PowerMizer</span>")
         pm_row.append(pm_lbl)
-        self.pm_combo = Gtk.DropDown.new_from_strings(["Adaptive", "Max Performance", "Auto"])
+        self.pm_combo = Gtk.DropDown.new_from_strings(
+            ["Adaptive", "Max Performance", "Auto"])
         self.pm_combo.set_selected(0)
         pm_row.append(self.pm_combo)
         gpu_card.append(pm_row)
 
-        # Apply button
-        self.oc_btn = Gtk.Button(label="⚡ Apply OC")
+        # Apply OC button
+        self.oc_btn = Gtk.Button(label="Apply OC")
         self.oc_btn.set_margin_top(8)
         self.oc_btn.add_css_class("btn-apply")
         self.oc_btn.connect("clicked", self.on_apply_oc)
@@ -1060,34 +1315,46 @@ class CommandCenter(Adw.ApplicationWindow):
         self.oc_status_lbl.set_halign(Gtk.Align.START)
         gpu_card.append(self.oc_status_lbl)
 
-        return gpu_card
+        panel.append(gpu_card)
+        return panel
 
+    # ============================================================
+    # Refresh / Live Updates
+    # ============================================================
     def refresh(self):
+        # CPU stats
         self.lbl_threads.set_label(str(self.topo.get_online_count()))
         freq = self.topo.get_cpu_freq(0)
         self.lbl_freq.set_label(f"{freq}")
         temp = self.topo.get_temp()
-        self.lbl_temp.set_label(f"{temp:.0f}°")
+        self.lbl_temp.set_label(f"{temp:.0f}")
+        gov = self.topo.get_governor()
+        self.lbl_governor.set_label(gov)
 
+        # Game mode banner + button
         gm = self.topo.get_game_mode()
         if gm:
             self.banner.set_markup(
-                "<span color='#e0af68' weight='600'>🎮 GAME MODE — CCD1 parked, 6 cores active</span>")
+                "<span color='#e0af68' weight='600'>GAME MODE - CCD1 parked, 6 cores active</span>")
             self.banner.add_css_class("banner-gaming")
             self.banner.remove_css_class("banner-normal")
-            self.gm_btn.set_label("🟢 Disable Game Mode")
+            self.gm_btn.set_label("Disable Game Mode")
             self.gm_btn.remove_css_class("btn-game-on")
             self.gm_btn.add_css_class("btn-game-off")
+            self.status_footer_lbl.set_markup(
+                "<span color='#e0af68'>  Game Mode ON</span>")
         else:
             self.banner.set_markup(
-                f"<span color='#9ece6a' weight='600'>🟢 NORMAL — {self.topo.get_online_count()} cores active</span>")
+                f"<span color='#9ece6a' weight='600'>NORMAL - {self.topo.get_online_count()} cores active</span>")
             self.banner.add_css_class("banner-normal")
             self.banner.remove_css_class("banner-gaming")
-            self.gm_btn.set_label("🎮 Enable Game Mode")
+            self.gm_btn.set_label("Enable Game Mode")
             self.gm_btn.add_css_class("btn-game-on")
             self.gm_btn.remove_css_class("btn-game-off")
+            self.status_footer_lbl.set_markup(
+                f"<span color='#9ece6a'>  {self.topo.get_online_count()} cores active</span>")
 
-        # CCD cards — simplified, no per-core freq spam
+        # CCD cards
         for ccd_id, card in self.ccd_cards.items():
             cpus = self.topo.get_ccd_cpus(ccd_id)
             online = sum(1 for c in cpus if self.topo.is_cpu_online(c))
@@ -1124,27 +1391,30 @@ class CommandCenter(Adw.ApplicationWindow):
                 child = child.get_next_sibling()
                 i += 1
 
-            # Single avg freq (not per-core)
+            # Avg freq
             if online > 0:
                 freqs = [self.topo.get_cpu_freq(c) for c in cpus if self.topo.is_cpu_online(c)]
                 avg = sum(freqs) // len(freqs) if freqs else 0
-                card._avg_freq.set_label(f"Ø {avg} MHz")
+                card._avg_freq.set_label(f"Avg {avg} MHz")
             else:
                 card._avg_freq.set_label("parked")
 
         # GPU
         self.gpu.update()
-        self.gpu_name_lbl.set_markup(f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name}</span>")
+        self.gpu_name_lbl.set_markup(
+            f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name or 'NVIDIA GPU'}</span>")
         self.gpu_clock_lbl.set_label(str(self.gpu.clock_gr))
         self.gpu_mem_lbl.set_label(str(self.gpu.clock_mem))
         self.gpu_power_lbl.set_label(f"{self.gpu.power_draw:.0f}W")
-        self.gpu_temp_lbl.set_label(f"{self.gpu.temp:.0f}°")
+        self.gpu_temp_lbl.set_label(f"{self.gpu.temp:.0f}")
+        self.gpu_vram_lbl.set_label(str(self.gpu.vram_used))
         self.gpu_info_lbl.set_label(
-            f"P-State: {self.gpu.pstate}  |  VRAM: {self.gpu.vram_used}/{self.gpu.vram_total} MB  |  "
-            f"Util: {self.gpu.util}%  |  Power Limit: {self.gpu.power_limit:.0f}W"
+            f"P-State: {self.gpu.pstate}  |  Util: {self.gpu.util}%  |  "
+            f"Power Limit: {self.gpu.power_limit:.0f}W"
         )
         if self.gpu.max_clock_gr > 0:
-            self.gpu_clock_bar.set_fraction(min(self.gpu.clock_gr / self.gpu.max_clock_gr, 1.0))
+            self.gpu_clock_bar.set_fraction(
+                min(self.gpu.clock_gr / self.gpu.max_clock_gr, 1.0))
 
         # OC
         self.gr_slider.set_value(self.gpu.gr_offset)
@@ -1155,15 +1425,17 @@ class CommandCenter(Adw.ApplicationWindow):
 
         return True
 
+    # ============================================================
+    # Game Mode Toggle
+    # ============================================================
     def on_toggle_gm(self, btn):
         gm = self.topo.get_game_mode()
         self.gm_btn.set_sensitive(False)
-        self.gm_btn.set_label("⏳ Please wait...")
+        self.gm_btn.set_label("Please wait...")
 
         def run_in_thread():
             if gm:
                 CCDController.unpark()
-                # Wait for CPUs to come back online
                 time.sleep(1.5)
             else:
                 CCDController.park()
@@ -1177,6 +1449,9 @@ class CommandCenter(Adw.ApplicationWindow):
 
         threading.Thread(target=run_in_thread, daemon=True).start()
 
+    # ============================================================
+    # GPU Overclocking
+    # ============================================================
     def on_gr_slider(self, slider):
         v = int(slider.get_value())
         self.gr_value_lbl.set_label(f"{v:+d} MHz")
@@ -1199,49 +1474,43 @@ class CommandCenter(Adw.ApplicationWindow):
 
         if ok:
             self.oc_status_lbl.set_markup(
-                f"<span color='#9ece6a'>✅ Core {gr_off:+d} MHz | VRAM {mem_off:+d} MHz | "
+                f"<span color='#9ece6a'>Core {gr_off:+d} MHz | VRAM {mem_off:+d} MHz | "
                 f"PM: {['Adaptive','Max Perf','Auto'][pm]}</span>")
         else:
             self.oc_status_lbl.set_markup(
-                "<span color='#f7768e'>❌ Error — Coolbits enabled?</span>")
+                "<span color='#f7768e'>Error - Coolbits enabled?</span>")
         GLib.timeout_add(1000, self.refresh)
 
+    # ============================================================
+    # CCD Benchmark
+    # ============================================================
     def on_benchmark(self, btn):
-        if self.benching: return
+        if self.benching:
+            return
         self.benching = True
-        self.bench_btn.set_label("⚡ Benchmark running...")
+        self.bench_btn.set_label("Benchmark running...")
         self.bench_btn.set_sensitive(False)
         self.bench_progress.set_visible(True)
         self.bench_progress.set_fraction(0.0)
         self.bench_label.set_markup(
-            "<span color='#7aa2f7' weight='bold'>📊 Benchmark starting...</span>\n"
+            "<span color='#7aa2f7' weight='bold'>Benchmark starting...</span>\n"
             "<span color='#565f89'>Testing each core individually (~25 seconds)</span>")
 
         # Collect all physical cores across CCDs
-        # SMT pairs: CPU 0+12, 1+13, 2+14, etc. — physical core = the lower CPU number
-        # For CCD0: cpus=[0-5,12-17] → physical=[0,1,2,3,4,5]
-        # For CCD1: cpus=[6-11,18-23] → physical=[6,7,8,9,10,11]
         all_cores = []
         for ccd_id in self.topo.get_all_ccd_ids():
             cpus = sorted(self.topo.get_ccd_cpus(ccd_id))
-            # Physical cores = CPUs that are < first SMT sibling offset
-            # In a 24-thread CPU, threads 12-23 are SMT siblings of 0-11
-            # So physical = CPUs where cpu < total_threads / 2 (i.e. < 12 for 24-thread)
-            # But per-CCD: physical = first half of the CCD's CPU list
             mid = len(cpus) // 2
             physical = cpus[:mid]
-            # Only include cores that are actually online
             online_physical = [c for c in physical if self.topo.is_cpu_online(c)]
             if online_physical:
                 all_cores.append((ccd_id, online_physical))
 
         # If CCD1 disappeared from topology (parked), add it manually
         if len(all_cores) < 2:
-            # Check if CPU 6 exists but is offline (parked CCD1)
             try:
                 with open("/sys/devices/system/cpu/cpu6/online") as f:
                     if f.read().strip() == "0":
-                        # CCD1 physical cores = CPUs 6-11
                         all_cores.append((1, [6, 7, 8, 9, 10, 11]))
             except:
                 pass
@@ -1249,26 +1518,28 @@ class CommandCenter(Adw.ApplicationWindow):
         total_cores = sum(len(cores) for _, cores in all_cores)
         if total_cores == 0:
             self.benching = False
-            self.bench_btn.set_label("⚡ Run CCD Benchmark")
+            self.bench_btn.set_label("Run CCD Benchmark")
             self.bench_btn.set_sensitive(True)
             self.bench_progress.set_visible(False)
-            self.bench_label.set_markup("<span color='#f7768e'>No cores available for benchmark</span>")
+            self.bench_label.set_markup(
+                "<span color='#f7768e'>No cores available for benchmark</span>")
             return
 
         cores_done = [0]
         all_results = {}
 
         def run_benchmark():
-            """Run benchmark in background thread — updates UI via GLib.idle_add"""
+            """Run benchmark in background thread - updates UI via GLib.idle_add"""
             for ccd_id, physical in all_cores:
                 results = {}
                 for i, cpu in enumerate(physical):
-                    # Update UI before each core
-                    GLib.idle_add(lambda c=cpu, ccd=ccd_id, i=i, n=len(physical): self.bench_label.set_markup(
-                        f"<span color='#7aa2f7' weight='bold'>📊 Benchmark: CCD{ccd_id} — "
-                        f"Core {i+1}/{n} (CPU {c})</span>\n"
-                        f"<span color='#565f89'>{cores_done[0]}/{total_cores} cores tested</span>"))
-                    GLib.idle_add(lambda: self.bench_progress.set_fraction(cores_done[0] / total_cores))
+                    GLib.idle_add(lambda c=cpu, ccd=ccd_id, i=i, n=len(physical):
+                        self.bench_label.set_markup(
+                            f"<span color='#7aa2f7' weight='bold'>Benchmark: CCD{ccd_id} - "
+                            f"Core {i+1}/{n} (CPU {c})</span>\n"
+                            f"<span color='#565f89'>{cores_done[0]}/{total_cores} cores tested</span>"))
+                    GLib.idle_add(lambda: self.bench_progress.set_fraction(
+                        cores_done[0] / total_cores))
 
                     try:
                         r = subprocess.run(
@@ -1289,7 +1560,7 @@ class CommandCenter(Adw.ApplicationWindow):
 
                 all_results[ccd_id] = results
 
-            # Done — update UI
+            # Done
             GLib.idle_add(lambda: self.bench_progress.set_fraction(1.0))
             GLib.idle_add(lambda: self._finish_benchmark(all_results))
 
@@ -1297,13 +1568,13 @@ class CommandCenter(Adw.ApplicationWindow):
 
     def _finish_benchmark(self, all_results):
         self.benching = False
-        self.bench_btn.set_label("⚡ Run CCD Benchmark")
+        self.bench_btn.set_label("Run CCD Benchmark")
         self.bench_btn.set_sensitive(True)
         self.bench_progress.set_visible(False)
         self._show_bench(all_results)
 
     def _show_bench(self, all_results):
-        text = "<span color='#7aa2f7' weight='bold'>📊 CCD Benchmark Results</span>\n\n"
+        text = "<span color='#7aa2f7' weight='bold'>CCD Benchmark Results</span>\n\n"
         best_ccd = None
         best_avg = 0
         for ccd_id in sorted(all_results.keys()):
@@ -1318,17 +1589,18 @@ class CommandCenter(Adw.ApplicationWindow):
             results = all_results[ccd_id]
             if results:
                 avg = sum(results.values()) / len(results)
-                marker = "🏆 " if ccd_id == best_ccd else "   "
+                marker = ">> " if ccd_id == best_ccd else "   "
                 color = "#e0af68" if ccd_id == best_ccd else "#c0caf5"
-                bar = "█" * int(avg / 50000) + "░" * (20 - int(avg / 50000))
+                bar = "\u2588" * int(avg / 50000) + "\u2591" * (20 - int(avg / 50000))
                 text += f"<span color='{color}'>{marker}CCD{ccd_id}: {bar} {avg:.0f} kB/s</span>\n"
 
         if best_ccd is not None:
-            text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} is faster → keep for gaming!</span>"
+            text += f"\n<span color='#e0af68' weight='bold'>>> CCD{best_ccd} is BEST - keep for gaming!</span>"
 
         self.bench_label.set_markup(text)
         self.best_ccd = best_ccd
 
+        # Update CCD cards on the Dashboard with BEST badge
         for ccd_id, card in self.ccd_cards.items():
             if ccd_id == best_ccd:
                 card.add_css_class("ccd-card-best")
@@ -1339,6 +1611,9 @@ class CommandCenter(Adw.ApplicationWindow):
                 card._badge.remove_css_class("badge-best")
 
 
+# ============================================================
+# Application
+# ============================================================
 class App(Adw.Application):
     def __init__(self):
         super().__init__(application_id="com.gaming.commandcenter")
