@@ -595,11 +595,6 @@ class CommandCenter(Adw.ApplicationWindow):
         super().__init__(application=app)
         self.set_title("Gaming Command Center")
         self.set_default_size(680, 720)
-        # Set window icon — use icon name (looks up from icon theme)
-        try:
-            self.set_icon_name("gaming-command-center")
-        except:
-            pass
         self.topo = CPUTopology()
         self.gpu = GPUInfo()
         self.benching = False
@@ -1349,8 +1344,6 @@ class App(Adw.Application):
         super().__init__(application_id="com.gaming.commandcenter")
 
     def do_activate(self):
-        # Set app icon — Gtk.Application uses this for taskbar
-        Gtk.Application.set_default_icon_name(self, "gaming-command-center")
         win = CommandCenter(self)
         win.present()
 
