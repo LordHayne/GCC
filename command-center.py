@@ -8,7 +8,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GLib, Gdk, GObject
-import subprocess, os, re, threading, time
+import subprocess, os, re, shutil, threading, time
 from system_scanner import scan_system
 from topology import CPUTopology, format_cpu_list, save_config
 
@@ -18,17 +18,19 @@ from topology import CPUTopology, format_cpu_list, save_config
 # ============================================================
 class GPUInfo:
     def __init__(self):
+        self.gr_offset = self.mem_offset = 0
+        self.powermizer = 0
         self.update()
+        self.update_oc()
 
     def update(self):
+        """Live telemetry — cheap enough to poll every tick (~25 ms)."""
         self.name = ""
         self.vram_total = self.vram_used = 0
         self.power_draw = self.power_limit = self.temp = 0.0
         self.clock_gr = self.clock_mem = self.max_clock_gr = self.max_clock_mem = 0
         self.pstate = ""
         self.util = 0
-        self.gr_offset = self.mem_offset = 0
-        self.powermizer = 0
         try:
             r = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name,memory.total,memory.used,power.draw,power.limit,temperature.gpu,clocks.gr,clocks.mem,pstate,utilization.gpu",
@@ -55,24 +57,27 @@ class GPUInfo:
             if val and val != "[N/A]":
                 self.max_clock_gr = int(float(val))
         except: pass
-        try:
-            r = subprocess.run(["nvidia-settings", "-q", "GPUGraphicsClockOffsetAllPerformanceLevels"],
-                              capture_output=True, text=True, timeout=2)
-            m = re.search(r'\): (-?\d+)', r.stdout)
-            if m: self.gr_offset = int(m.group(1))
-        except: pass
-        try:
-            r = subprocess.run(["nvidia-settings", "-q", "GPUMemoryTransferRateOffsetAllPerformanceLevels"],
-                              capture_output=True, text=True, timeout=2)
-            m = re.search(r'\): (-?\d+)', r.stdout)
-            if m: self.mem_offset = int(m.group(1))
-        except: pass
-        try:
-            r = subprocess.run(["nvidia-settings", "-q", "GPUPowerMizerMode"],
-                              capture_output=True, text=True, timeout=2)
-            m = re.search(r'\): (\d+)', r.stdout)
-            if m: self.powermizer = int(m.group(1))
-        except: pass
+
+    def update_oc(self):
+        """Overclock offsets and PowerMizer mode.
+
+        Three nvidia-settings calls, ~200 ms — by far the most expensive thing
+        we poll, and pointless to poll at all: these values only change when
+        this app changes them. Read once at startup and after Apply OC.
+        """
+        for attr, query, pattern in (
+            ("gr_offset", "GPUGraphicsClockOffsetAllPerformanceLevels", r'\): (-?\d+)'),
+            ("mem_offset", "GPUMemoryTransferRateOffsetAllPerformanceLevels", r'\): (-?\d+)'),
+            ("powermizer", "GPUPowerMizerMode", r'\): (\d+)'),
+        ):
+            try:
+                r = subprocess.run(["nvidia-settings", "-q", query],
+                                   capture_output=True, text=True, timeout=2)
+                m = re.search(pattern, r.stdout)
+                if m:
+                    setattr(self, attr, int(m.group(1)))
+            except (OSError, subprocess.SubprocessError):
+                pass
 
 
 # ============================================================
@@ -120,6 +125,12 @@ class CCDController:
     @staticmethod
     def unpark_all():
         return CCDController._run(["unpark-all"], "DONE_UNPARK")
+
+    @staticmethod
+    def helper(action, expect, success_msg):
+        """Run a one-word helper action and turn it into (ok, message)."""
+        ok, err = CCDController._run([action], expect, timeout=30)
+        return (True, success_msg) if ok else (False, err)
 
 
 class GPUController:
@@ -341,103 +352,59 @@ class GameDoctorPage(Gtk.Box):
             fix_btn.add_css_class("btn-apply")
             fix_btn.set_valign(Gtk.Align.CENTER)
             fix_btn.set_margin_start(8)
+            # The row's message label doubles as the result line, so a failed
+            # fix can say *why* instead of just turning the button red.
+            fix_btn._msg_lbl = msg_lbl
             fix_btn.connect("clicked", self.on_fix_clicked, check)
             row.append(fix_btn)
 
         return row
 
-    def on_fix_clicked(self, btn, check):
-        """Apply the actual fix based on which check triggered it."""
-        btn.set_label("Applying...")
-        btn.set_sensitive(False)
+    # --- individual fixes: each returns (ok, message) and never lies ---
 
-        def apply_in_thread():
-            ok = False
-            msg = ""
+    def _fix_governor(self):
+        return CCDController.helper("governor", "DONE_GOVERNOR",
+                                    "CPU governor set to powersave")
 
-            if check.name == "CPU Governor":
-                try:
-                    subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "governor"],
-                                 capture_output=True, text=True, timeout=10)
-                    for cpu in range(128):
-                        try:
-                            with open(f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_governor", "w") as f:
-                                f.write("powersave")
-                        except:
-                            break
-                    ok = True
-                    msg = "Governor set to powersave"
-                except Exception as e:
-                    msg = f"Failed: {e}"
+    def _fix_audio(self):
+        return CCDController.helper("audio", "DONE_AUDIO", "Audio power save enabled")
 
-            elif check.name == "CCD / Game Mode":
-                topo = CPUTopology()
-                keep = topo.keep_ccd()
-                plan = topo.park_plan(keep)
-                if not topo.complete:
-                    msg = "CPU layout unknown while cores are parked — restore all cores first"
-                elif not plan:
-                    msg = "Nothing to park — this CPU has only one CCD"
-                else:
-                    ok, err = CCDController.park(plan)
-                    parked = [c for c in topo.get_all_ccd_ids() if c != keep]
-                    msg = (f"Game Mode on — kept CCD{keep}, parked "
-                           f"{', '.join(f'CCD{c}' for c in parked)}" if ok else err)
+    def _fix_sata(self):
+        return CCDController.helper("sata", "DONE_SATA",
+                                    "SATA link power set to med_power_with_dipm")
 
-            elif check.name == "Audio Power Save":
-                try:
-                    subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "audio"],
-                                 capture_output=True, text=True, timeout=10)
-                    ok = True
-                    msg = "Audio Power Save enabled"
-                except Exception as e:
-                    msg = f"Failed: {e}"
+    def _fix_modprobe(self):
+        return CCDController.helper("modprobe", "DONE_MODPROBE",
+                                    "NVIDIA modprobe config written — reboot to apply")
 
-            elif check.name == "GameMode":
-                try:
-                    subprocess.run(["pacman", "-S", "--noconfirm", "gamemode"],
-                                 capture_output=True, text=True, timeout=60)
-                    ok = True
-                    msg = "GameMode installed"
-                except:
-                    msg = "Install manually: pacman -S gamemode"
+    def _fix_coolbits(self):
+        return CCDController.helper("coolbits", "DONE_COOLBITS",
+                                    "Coolbits enabled — restart your session to apply")
 
-            elif check.name == "gamescope":
-                try:
-                    subprocess.run(["pacman", "-S", "--noconfirm", "gamescope"],
-                                 capture_output=True, text=True, timeout=60)
-                    ok = True
-                    msg = "gamescope installed"
-                except:
-                    msg = "Install manually: pacman -S gamescope"
+    def _fix_game_mode(self):
+        topo = CPUTopology()
+        if not topo.complete:
+            return False, "CPU layout unknown while cores are parked — restore all cores first"
+        keep = topo.keep_ccd()
+        plan = topo.park_plan(keep)
+        if not plan:
+            return False, "Nothing to park — this CPU has only one CCD"
+        ok, err = CCDController.park(plan)
+        if not ok:
+            return False, err
+        parked = ", ".join(f"CCD{c}" for c in topo.get_all_ccd_ids() if c != keep)
+        return True, f"Game Mode on — kept CCD{keep}, parked {parked}"
 
-            elif check.name == "SATA Link Power":
-                try:
-                    for i in range(4):
-                        path = f"/sys/class/scsi_host/host{i}/link_power_management_policy"
-                        import os as _os
-                        if _os.exists(path):
-                            subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "sata"],
-                                         capture_output=True, text=True, timeout=10)
-                            break
-                    ok = True
-                    msg = "SATA Link Power set to med_power_with_dipm"
-                except Exception as e:
-                    msg = f"Failed: {e}"
-
-            elif check.name == "GameMode Config":
-                try:
-                    from topology import CPUTopology, format_cpu_list
-                    topo = CPUTopology()
-                    keep = topo.keep_ccd()
-                    park = topo.park_plan(keep)
-                    if not topo.complete:
-                        msg = "CPU layout unknown while cores are parked — restore all cores first"
-                    elif topo.ccd_count() < 2 or not park:
-                        msg = "Single-CCD CPU — no core parking to configure"
-                    else:
-                        config_path = os.path.expanduser("~/.config/gamemode.ini")
-                        config = f"""[general]
+    def _fix_gamemode_ini(self):
+        topo = CPUTopology()
+        if not topo.complete:
+            return False, "CPU layout unknown while cores are parked — restore all cores first"
+        keep = topo.keep_ccd()
+        park = topo.park_plan(keep)
+        if topo.ccd_count() < 2 or not park:
+            return False, "Single-CCD CPU — no core parking to configure"
+        path = os.path.expanduser("~/.config/gamemode.ini")
+        config = f"""[general]
 desiredgov=performance
 renice=0
 ioprio=0
@@ -450,44 +417,72 @@ pin_cores={format_cpu_list(topo.get_ccd_cpus(keep))}
 apply_gpu_optimisations=accept-responsibility
 nv_powermizer_mode=1
 """
-                        with open(config_path, "w") as f:
-                            f.write(config)
-                        ok = True
-                        msg = f"gamemode.ini created — pins CCD{keep}, parks {format_cpu_list(park)}"
-                except Exception as e:
-                    msg = f"Failed: {e}"
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(config)
+        except OSError as e:
+            return False, f"Could not write {path}: {e}"
+        return True, f"gamemode.ini written — pins CCD{keep}, parks {format_cpu_list(park)}"
 
-            elif check.name == "NVIDIA Modprobe":
-                try:
-                    subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "modprobe"],
-                                 capture_output=True, text=True, timeout=10)
-                    ok = True
-                    msg = "NVIDIA modprobe config created"
-                except Exception as e:
-                    msg = f"Failed: {e}"
+    @staticmethod
+    def _install_package(pkg):
+        """pacman needs root, so it goes through pkexec — the old code ran it as
+        the user, which always failed while the button still said 'installed'."""
+        if not shutil.which("pacman"):
+            return False, f"Not an Arch-based distro — install '{pkg}' with your package manager"
+        try:
+            r = subprocess.run(["pkexec", "pacman", "-S", "--needed", "--noconfirm", pkg],
+                               capture_output=True, text=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            return False, f"Install of '{pkg}' timed out"
+        except OSError as e:
+            return False, f"Could not run pacman: {e}"
+        if r.returncode == 0:
+            return True, f"{pkg} installed"
+        if r.returncode == 126:
+            return False, "Authorisation denied"
+        err = (r.stderr or "").strip().splitlines()
+        return False, err[-1] if err else f"pacman failed (exit {r.returncode})"
 
-            elif check.name == "Coolbits / GPU-OC":
-                try:
-                    subprocess.run(["pkexec", "/usr/local/bin/gaming-ccd-helper", "coolbits"],
-                                 capture_output=True, text=True, timeout=10)
-                    ok = True
-                    msg = "Coolbits enabled - restart X/Wayland to apply"
-                except Exception as e:
-                    msg = f"Failed: {e}"
+    def on_fix_clicked(self, btn, check):
+        """Run the fix for this check in a worker thread and report what happened."""
+        fixes = {
+            "CPU Governor":     self._fix_governor,
+            "CCD / Game Mode":  self._fix_game_mode,
+            "Audio Power Save": self._fix_audio,
+            "SATA Link Power":  self._fix_sata,
+            "GameMode Config":  self._fix_gamemode_ini,
+            "NVIDIA Modprobe":  self._fix_modprobe,
+            "Coolbits / GPU-OC": self._fix_coolbits,
+            "GameMode":         lambda: self._install_package("gamemode"),
+            "gamescope":        lambda: self._install_package("gamescope"),
+        }
+        fix = fixes.get(check.name)
+        if fix is None:
+            btn._msg_lbl.set_label("No automatic fix for this check yet")
+            return
 
-            else:
-                msg = "Fix not implemented yet for this check"
+        btn.set_label("Applying...")
+        btn.set_sensitive(False)
+
+        def apply_in_thread():
+            try:
+                ok, msg = fix()
+            except Exception as e:
+                ok, msg = False, f"Fix crashed: {e}"
 
             def update_ui():
+                btn._msg_lbl.set_label(msg)
+                btn.set_label("Done" if ok else "Retry")
+                btn.set_sensitive(not ok)
                 if ok:
-                    btn.set_label("Done")
                     btn.remove_css_class("btn-apply")
                     btn.add_css_class("btn-game-off")
-                else:
-                    btn.set_label("Failed")
-                GLib.timeout_add(3000, lambda: [btn.set_label("Apply Fix"), btn.set_sensitive(True),
-                                                 btn.remove_css_class("btn-game-off"), btn.add_css_class("btn-apply"),
-                                                 False][2])
+                    # Re-run this one check so the row reflects reality rather
+                    # than our claim about it.
+                    check.run()
+                return False
 
             GLib.idle_add(update_ui)
 
@@ -506,6 +501,9 @@ class CommandCenter(Adw.ApplicationWindow):
         self.gpu = GPUInfo()
         self.benching = False
         self.best_ccd = None
+        self._stop_monitor = threading.Event()
+        self._oc_touched = False   # user is editing the OC controls
+        self._syncing_oc = False   # we are writing them ourselves
 
         manager = Adw.StyleManager.get_default()
         manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
@@ -718,7 +716,12 @@ class CommandCenter(Adw.ApplicationWindow):
 
         self.build_ui()
         self.refresh()
-        GLib.timeout_add(1500, self.refresh)
+        threading.Thread(target=self._monitor_loop, daemon=True).start()
+        self.connect("close-request", self._on_close)
+
+    def _on_close(self, *_):
+        self._stop_monitor.set()
+        return False
 
     # ============================================================
     # UI Construction
@@ -1277,21 +1280,63 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     # Refresh / Live Updates
     # ============================================================
+    # ============================================================
+    # Monitoring — sampled off the main thread
+    # ============================================================
+    def _monitor_loop(self):
+        """Sampling `sensors` and nvidia-smi/nvidia-settings costs six
+        subprocesses per tick. Doing that on the GTK thread froze the UI every
+        1.5s, so all of it happens here and only the drawing is handed back."""
+        while not self._stop_monitor.is_set():
+            self._sample()
+            self._stop_monitor.wait(1.5)
+
+    def _sample(self):
+        try:
+            data = self._collect()
+        except Exception:
+            return  # a transient sysfs/nvidia hiccup must not kill the sampler
+        GLib.idle_add(self._render, data)
+
     def refresh(self):
-        # CPU stats
-        cores = self.topo.online_core_count()
+        """Take one sample now, without blocking the caller (a GTK handler)."""
+        threading.Thread(target=self._sample, daemon=True).start()
+        return False  # so GLib.timeout_add(..., self.refresh) fires only once
+
+    def _collect(self):
+        topo = self.topo
+        ccds = {}
+        for ccd_id in topo.get_all_ccd_ids():
+            cpus = topo.get_ccd_cpus(ccd_id)
+            freqs = {c: (topo.get_cpu_freq(c) if topo.is_cpu_online(c) else None)
+                     for c in cpus}
+            ccds[ccd_id] = {"cpus": sorted(cpus), "freqs": freqs}
+
+        self.gpu.update()  # slow: nvidia-smi + 3x nvidia-settings
+
+        return {
+            "cores": topo.online_core_count(),
+            "freq0": topo.get_cpu_freq(0),
+            "temp": topo.get_temp(),  # slow: `sensors`
+            "gov": topo.get_governor(),
+            "game_mode": topo.game_mode_active(),
+            "parked": topo.get_parked_ccds(),
+            "keep": topo.keep_ccd(),
+            "ccd_count": topo.ccd_count(),
+            "complete": topo.complete,
+            "ccds": ccds,
+        }
+
+    def _render(self, d):
+        cores = d["cores"]
         self.lbl_threads.set_label(str(cores))
-        freq = self.topo.get_cpu_freq(0)
-        self.lbl_freq.set_label(f"{freq}")
-        temp = self.topo.get_temp()
-        self.lbl_temp.set_label(f"{temp:.0f}")
-        gov = self.topo.get_governor()
-        self.lbl_governor.set_label(gov)
+        self.lbl_freq.set_label(f"{d['freq0']}")
+        self.lbl_temp.set_label(f"{d['temp']:.0f}")
+        self.lbl_governor.set_label(d["gov"])
 
         # Game mode banner + button
-        gm = self.topo.game_mode_active()
-        if gm:
-            parked = ", ".join(f"CCD{c}" for c in self.topo.get_parked_ccds())
+        if d["game_mode"]:
+            parked = ", ".join(f"CCD{c}" for c in d["parked"])
             self.banner.set_markup(
                 f"<span color='#e0af68' weight='600'>GAME MODE - {parked} parked, "
                 f"{cores} cores active</span>")
@@ -1314,24 +1359,28 @@ class CommandCenter(Adw.ApplicationWindow):
                 f"<span color='#9ece6a'>  {cores} cores active</span>")
 
         # Game Mode needs something to park — a single-CCD CPU has nothing.
-        single_ccd = self.topo.ccd_count() < 2
-        self.gm_btn.set_sensitive(not single_ccd and self.topo.complete)
+        single_ccd = d["ccd_count"] < 2
+        self.gm_btn.set_sensitive(not single_ccd and d["complete"])
         if single_ccd:
             self.gm_btn.set_tooltip_text(
                 "Game Mode needs a CPU with 2 or more CCDs (Ryzen 9 / Threadripper)")
-        elif not self.topo.complete:
+        elif not d["complete"]:
             self.gm_btn.set_tooltip_text(
                 "CPU layout unknown while cores are parked — restore all cores first")
         else:
-            keep = self.topo.keep_ccd()
+            keep = d["keep"]
             self.gm_btn.set_tooltip_text(
-                f"Parks every CCD except CCD{keep} ({self.topo.core_count(keep)} cores stay active)")
+                f"Parks every CCD except CCD{keep} "
+                f"({self.topo.core_count(keep)} cores stay active)")
 
         # CCD cards
-        keep_ccd = self.topo.keep_ccd()
         for ccd_id, card in self.ccd_cards.items():
-            cpus = self.topo.get_ccd_cpus(ccd_id)
-            online = sum(1 for c in cpus if self.topo.is_cpu_online(c))
+            info = d["ccds"].get(ccd_id)
+            if not info:
+                continue
+            cpus = info["cpus"]
+            freqs = info["freqs"]
+            online = sum(1 for c in cpus if freqs[c] is not None)
 
             card.remove_css_class("ccd-card-active")
             card.remove_css_class("ccd-card-parked")
@@ -1343,43 +1392,36 @@ class CommandCenter(Adw.ApplicationWindow):
             else:
                 card.add_css_class("ccd-card-active")
                 label = "ACTIVE"
-                if self.topo.ccd_count() > 1 and ccd_id == keep_ccd:
+                if d["ccd_count"] > 1 and ccd_id == d["keep"]:
                     label = "ACTIVE · KEEP"
-                if 0 < online < len(cpus):
+                if online < len(cpus):
                     label = f"PARTIAL ({online}/{len(cpus)})"
                 card._badge.set_label(label)
                 card._badge.add_css_class("badge-active")
                 card._badge.remove_css_class("badge-parked")
 
-            # Dots
-            i = 0
+            # Core dots
             child = card._cores.get_first_child()
-            while child:
-                cpu = sorted(cpus)[i]
+            for cpu in cpus:
+                if child is None:
+                    break
                 child.remove_css_class("core-on")
                 child.remove_css_class("core-off")
                 child.remove_css_class("core-dot-boost")
-                if self.topo.is_cpu_online(cpu):
-                    f = self.topo.get_cpu_freq(cpu)
-                    if f > 4200:
-                        child.add_css_class("core-dot-boost")
-                    else:
-                        child.add_css_class("core-on")
-                else:
+                f = freqs[cpu]
+                if f is None:
                     child.add_css_class("core-off")
+                elif f > 4200:
+                    child.add_css_class("core-dot-boost")
+                else:
+                    child.add_css_class("core-on")
                 child = child.get_next_sibling()
-                i += 1
 
-            # Avg freq
-            if online > 0:
-                freqs = [self.topo.get_cpu_freq(c) for c in cpus if self.topo.is_cpu_online(c)]
-                avg = sum(freqs) // len(freqs) if freqs else 0
-                card._avg_freq.set_label(f"Avg {avg} MHz")
-            else:
-                card._avg_freq.set_label("parked")
+            live = [f for f in freqs.values() if f is not None]
+            card._avg_freq.set_label(
+                f"Avg {sum(live) // len(live)} MHz" if live else "parked")
 
         # GPU
-        self.gpu.update()
         self.gpu_name_lbl.set_markup(
             f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name or 'NVIDIA GPU'}</span>")
         self.gpu_clock_lbl.set_label(str(self.gpu.clock_gr))
@@ -1395,14 +1437,18 @@ class CommandCenter(Adw.ApplicationWindow):
             self.gpu_clock_bar.set_fraction(
                 min(self.gpu.clock_gr / self.gpu.max_clock_gr, 1.0))
 
-        # OC
-        self.gr_slider.set_value(self.gpu.gr_offset)
-        self.mem_slider.set_value(self.gpu.mem_offset)
-        self.gr_value_lbl.set_label(f"{self.gpu.gr_offset:+d} MHz")
-        self.mem_value_lbl.set_label(f"{self.gpu.mem_offset:+d} MHz")
-        self.pm_combo.set_selected(self.gpu.powermizer)
+        # OC — only mirror the driver's values while the user is not editing,
+        # otherwise the next tick would yank the slider back mid-drag.
+        if not self._oc_touched:
+            self._syncing_oc = True
+            self.gr_slider.set_value(self.gpu.gr_offset)
+            self.mem_slider.set_value(self.gpu.mem_offset)
+            self.gr_value_lbl.set_label(f"{self.gpu.gr_offset:+d} MHz")
+            self.mem_value_lbl.set_label(f"{self.gpu.mem_offset:+d} MHz")
+            self.pm_combo.set_selected(self.gpu.powermizer)
+            self._syncing_oc = False
 
-        return True
+        return False
 
     # ============================================================
     # Game Mode Toggle
@@ -1477,31 +1523,47 @@ class CommandCenter(Adw.ApplicationWindow):
     def on_gr_slider(self, slider):
         v = int(slider.get_value())
         self.gr_value_lbl.set_label(f"{v:+d} MHz")
+        if not self._syncing_oc:
+            self._oc_touched = True
 
     def on_mem_slider(self, slider):
         v = int(slider.get_value())
         self.mem_value_lbl.set_label(f"{v:+d} MHz")
+        if not self._syncing_oc:
+            self._oc_touched = True
 
     def on_apply_oc(self, btn):
         gr_off = int(self.gr_slider.get_value())
         mem_off = int(self.mem_slider.get_value())
         pm = self.pm_combo.get_selected()
+        btn.set_sensitive(False)
 
-        ok = True
-        if gr_off != self.gpu.gr_offset:
-            ok = GPUController.set_gr_offset(gr_off)
-        if mem_off != self.gpu.mem_offset:
-            ok = ok and GPUController.set_mem_offset(mem_off)
-        GPUController.set_powermizer(pm)
+        def apply_in_thread():
+            ok = True
+            if gr_off != self.gpu.gr_offset:
+                ok = GPUController.set_gr_offset(gr_off)
+            if mem_off != self.gpu.mem_offset:
+                ok = ok and GPUController.set_mem_offset(mem_off)
+            GPUController.set_powermizer(pm)
+            self.gpu.update_oc()  # read back what the driver actually accepted
 
-        if ok:
-            self.oc_status_lbl.set_markup(
-                f"<span color='#9ece6a'>Core {gr_off:+d} MHz | VRAM {mem_off:+d} MHz | "
-                f"PM: {['Adaptive','Max Perf','Auto'][pm]}</span>")
-        else:
-            self.oc_status_lbl.set_markup(
-                "<span color='#f7768e'>Error - Coolbits enabled?</span>")
-        GLib.timeout_add(1000, self.refresh)
+            def update_ui():
+                btn.set_sensitive(True)
+                self._oc_touched = False  # let the monitor mirror the driver again
+                if ok:
+                    self.oc_status_lbl.set_markup(
+                        f"<span color='#9ece6a'>Core {self.gpu.gr_offset:+d} MHz | "
+                        f"VRAM {self.gpu.mem_offset:+d} MHz | "
+                        f"PM: {['Adaptive','Max Perf','Auto'][pm]}</span>")
+                else:
+                    self.oc_status_lbl.set_markup(
+                        "<span color='#f7768e'>Error - Coolbits enabled?</span>")
+                self.refresh()
+                return False
+
+            GLib.idle_add(update_ui)
+
+        threading.Thread(target=apply_in_thread, daemon=True).start()
 
     # ============================================================
     # CCD Benchmark
