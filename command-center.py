@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """
-Ryzen Gaming Command Center — Kommandozentrale für AMD Ryzen + NVIDIA GPU
-Zeigt CPU-Topologie, CCD-Parking (Game Mode), GPU-Infos und OC-Controls.
+Gaming Command Center — Kommandozentrale für AMD Ryzen + NVIDIA GPU
+Dark themed GUI with CCD-Parking, GPU-OC, and Live Monitoring.
 """
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, GLib, GObject
-import subprocess
-import os
-import re
-import threading
-import time
+from gi.repository import Gtk, Adw, GLib, Gdk, GObject
+import subprocess, os, re, threading
 
 # ============================================================
 # CPU Topology
@@ -22,8 +18,9 @@ class CPUTopology:
         self.detect()
 
     def detect(self):
+        self.ccds = {}
         cache_ids = {}
-        for cpu in range(64):
+        for cpu in range(128):
             path = f"/sys/devices/system/cpu/cpu{cpu}/cache/index3/id"
             try:
                 with open(path) as f:
@@ -48,11 +45,11 @@ class CPUTopology:
     def get_ccd_cpus(self, ccd_id):
         return self.ccds.get(ccd_id, [])
 
-    def ccd_count(self):
-        return len(self.ccds)
-
     def get_all_ccd_ids(self):
         return sorted(self.ccds.keys())
+
+    def ccd_count(self):
+        return len(self.ccds)
 
     def is_cpu_online(self, cpu):
         try:
@@ -71,13 +68,6 @@ class CPUTopology:
     def get_governor(self):
         try:
             with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") as f:
-                return f.read().strip()
-        except:
-            return "?"
-
-    def get_epp(self):
-        try:
-            with open("/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference") as f:
                 return f.read().strip()
         except:
             return "?"
@@ -109,7 +99,7 @@ class CPUTopology:
             with open("/proc/cpuinfo") as f:
                 for line in f:
                     if "model name" in line:
-                        return line.split(":")[1].strip()
+                        return line.split(":", 1)[1].strip()
         except:
             pass
         return "Unknown CPU"
@@ -120,30 +110,22 @@ class CPUTopology:
 # ============================================================
 class GPUInfo:
     def __init__(self):
-        self.name = ""
-        self.vram_total = 0
-        self.vram_used = 0
-        self.power_draw = 0.0
-        self.power_limit = 0.0
-        self.temp = 0.0
-        self.clock_gr = 0
-        self.clock_mem = 0
-        self.max_clock_gr = 0
-        self.max_clock_mem = 0
-        self.pstate = ""
-        self.util = 0
-        self.gr_offset = 0
-        self.mem_offset = 0
-        self.powermizer = 0
         self.update()
 
     def update(self):
+        self.name = ""
+        self.vram_total = self.vram_used = 0
+        self.power_draw = self.power_limit = self.temp = 0.0
+        self.clock_gr = self.clock_mem = self.max_clock_gr = self.max_clock_mem = 0
+        self.pstate = ""
+        self.util = 0
+        self.gr_offset = self.mem_offset = 0
+        self.powermizer = 0
         try:
             r = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name,memory.total,memory.used,power.draw,power.limit,temperature.gpu,clocks.gr,clocks.mem,pstate,utilization.gpu",
                  "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=3
-            )
+                capture_output=True, text=True, timeout=3)
             parts = [p.strip() for p in r.stdout.strip().split(",")]
             if len(parts) >= 10:
                 self.name = parts[0]
@@ -156,36 +138,19 @@ class GPUInfo:
                 self.clock_mem = int(float(parts[7]))
                 self.pstate = parts[8]
                 self.util = int(float(parts[9]))
-        except:
-            pass
-
-        # Max clocks
-        try:
-            r = subprocess.run(["nvidia-smi", "-q", "-d", "CLOCK"], capture_output=True, text=True, timeout=3)
-            gr_match = re.search(r'Graphics\s*:\s*(\d+)\s*MHz', r.stdout)
-            mem_match = re.search(r'Memory\s*:\s*(\d+)\s*MHz', r.stdout)
-            max_gr = re.search(r'Max Clocks.*?Graphics\s*:\s*(\d+)\s*MHz', r.stdout, re.DOTALL)
-            max_mem = re.search(r'Max Clocks.*?Memory\s*:\s*(\d+)\s*MHz', r.stdout, re.DOTALL)
-            if max_gr: self.max_clock_gr = int(max_gr.group(1))
-            if max_mem: self.max_clock_mem = int(max_mem.group(1))
-        except:
-            pass
-
-        # OC offsets
+        except: pass
         try:
             r = subprocess.run(["nvidia-settings", "-q", "GPUGraphicsClockOffsetAllPerformanceLevels"],
                               capture_output=True, text=True, timeout=2)
             m = re.search(r'\): (-?\d+)', r.stdout)
             if m: self.gr_offset = int(m.group(1))
         except: pass
-
         try:
             r = subprocess.run(["nvidia-settings", "-q", "GPUMemoryTransferRateOffsetAllPerformanceLevels"],
                               capture_output=True, text=True, timeout=2)
             m = re.search(r'\): (-?\d+)', r.stdout)
             if m: self.mem_offset = int(m.group(1))
         except: pass
-
         try:
             r = subprocess.run(["nvidia-settings", "-q", "GPUPowerMizerMode"],
                               capture_output=True, text=True, timeout=2)
@@ -195,67 +160,60 @@ class GPUInfo:
 
 
 # ============================================================
-# CCD Parking
+# Controllers
 # ============================================================
 class CCDController:
-    HELPER = os.path.expanduser("~/.local/bin/gaming-ccd-helper")
+    HELPER = "/usr/local/bin/gaming-ccd-helper"
 
     @staticmethod
-    def park(ccd_cpus):
+    def park():
         try:
             r = subprocess.run(["pkexec", CCDController.HELPER, "on"],
-                              capture_output=True, text=True, timeout=30)
-            return "DONE_ON" in r.stdout
-        except:
+                              capture_output=True, text=True, timeout=60)
+            return "DONE_ON" in (r.stdout or "")
+        except subprocess.TimeoutExpired:
+            return False
+        except Exception:
             return False
 
     @staticmethod
-    def unpark(ccd_cpus):
+    def unpark():
         try:
             r = subprocess.run(["pkexec", CCDController.HELPER, "off"],
-                              capture_output=True, text=True, timeout=30)
-            return "DONE_OFF" in r.stdout
-        except:
+                              capture_output=True, text=True, timeout=60)
+            return "DONE_OFF" in (r.stdout or "")
+        except subprocess.TimeoutExpired:
+            return False
+        except Exception:
             return False
 
 
-# ============================================================
-# GPU Overclock
-# ============================================================
 class GPUController:
     @staticmethod
     def set_gr_offset(offset):
         try:
-            r = subprocess.run(
-                ["nvidia-settings", "-a", f"GPUGraphicsClockOffsetAllPerformanceLevels={offset}"],
-                capture_output=True, text=True, timeout=3
-            )
+            subprocess.run(["nvidia-settings", "-a",
+                           f"GPUGraphicsClockOffsetAllPerformanceLevels={offset}"],
+                          capture_output=True, text=True, timeout=3)
             return True
-        except:
-            return False
+        except: return False
 
     @staticmethod
     def set_mem_offset(offset):
         try:
-            r = subprocess.run(
-                ["nvidia-settings", "-a", f"GPUMemoryTransferRateOffsetAllPerformanceLevels={offset}"],
-                capture_output=True, text=True, timeout=3
-            )
+            subprocess.run(["nvidia-settings", "-a",
+                           f"GPUMemoryTransferRateOffsetAllPerformanceLevels={offset}"],
+                          capture_output=True, text=True, timeout=3)
             return True
-        except:
-            return False
+        except: return False
 
     @staticmethod
     def set_powermizer(mode):
-        """0=Adaptive, 1=Prefer Max Performance, 2=Auto"""
         try:
-            r = subprocess.run(
-                ["nvidia-settings", "-a", f"GPUPowerMizerMode={mode}"],
-                capture_output=True, text=True, timeout=3
-            )
+            subprocess.run(["nvidia-settings", "-a", f"GPUPowerMizerMode={mode}"],
+                          capture_output=True, text=True, timeout=3)
             return True
-        except:
-            return False
+        except: return False
 
 
 # ============================================================
@@ -265,26 +223,127 @@ class CommandCenter(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_title("Gaming Command Center")
-        self.set_default_size(720, 780)
+        self.set_default_size(680, 720)
         self.topo = CPUTopology()
         self.gpu = GPUInfo()
         self.benching = False
-        self.bench_results = {}
+        self.best_ccd = None
+
+        manager = Adw.StyleManager.get_default()
+        manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
 
         css = """
-        .ccd-card { padding: 14px; border-radius: 12px; margin: 4px; }
-        .ccd-on { background: rgba(46,204,113,0.10); }
-        .ccd-off { background: rgba(231,76,60,0.10); }
-        .stat-value { font-size: 24px; font-weight: bold; }
-        .stat-label { font-size: 11px; opacity: 0.55; }
-        .freq-label { font-size: 11px; opacity: 0.6; }
-        .core-dot { border-radius: 50%; min-width: 10px; min-height: 10px; }
-        .core-on { background: #2ecc71; }
-        .core-off { background: #e74c3c; opacity: 0.35; }
-        .section-title { font-size: 14px; font-weight: bold; opacity: 0.7; margin-top: 10px; }
-        .gpu-card { padding: 14px; border-radius: 12px; margin: 4px; background: rgba(52,152,219,0.08); }
-        .slider-box { padding: 8px 0; }
-        .preset-btn { padding: 4px 12px; }
+        .stat-tile {
+            background: #24253b;
+            border-radius: 10px;
+            padding: 12px 14px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .stat-value { font-size: 22px; font-weight: 800; color: #c0caf5; }
+        .stat-value-green { font-size: 22px; font-weight: 800; color: #9ece6a; }
+        .stat-value-blue { font-size: 22px; font-weight: 800; color: #7aa2f7; }
+        .stat-value-orange { font-size: 22px; font-weight: 800; color: #e0af68; }
+        .stat-label { font-size: 10px; color: #565f89; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* CCD cards — simplified */
+        .ccd-card {
+            background: #24253b;
+            border-radius: 14px;
+            padding: 14px 16px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .ccd-card-active {
+            background: rgba(158,206,106,0.06);
+            border: 1px solid rgba(158,206,106,0.15);
+        }
+        .ccd-card-parked {
+            background: rgba(247,118,142,0.05);
+            border: 1px solid rgba(247,118,142,0.12);
+        }
+        .ccd-card-best {
+            border: 1px solid rgba(158,206,106,0.35);
+        }
+        .ccd-title { font-size: 15px; font-weight: 700; color: #c0caf5; }
+        .ccd-badge {
+            font-size: 10px; font-weight: 700;
+            padding: 2px 8px; border-radius: 6px;
+        }
+        .badge-gaming { background: rgba(224,175,104,0.15); color: #e0af68; }
+        .badge-parked { background: rgba(247,118,142,0.12); color: #f7768e; }
+        .badge-active { background: rgba(158,206,106,0.12); color: #9ece6a; }
+        .badge-best { background: rgba(158,206,106,0.18); color: #9ece6a; }
+
+        .core-dot { border-radius: 50%; min-width: 12px; min-height: 12px; }
+        .core-on { background: #9ece6a; }
+        .core-off { background: #414868; }
+        .core-dot-boost { background: #e0af68; }
+
+        .section-header {
+            font-size: 13px; font-weight: 700; color: #7aa2f7;
+            text-transform: uppercase; letter-spacing: 1.5px;
+            margin-top: 14px; margin-bottom: 2px;
+        }
+
+        .gpu-card {
+            background: #1f2335;
+            border-radius: 14px;
+            padding: 16px;
+            border: 1px solid rgba(122,162,247,0.08);
+        }
+
+        progressbar trough { background: #1a1b26; border-radius: 4px; min-height: 6px; }
+        progressbar progress { background: #7aa2f7; border-radius: 4px; }
+
+        .btn-game-on {
+            background: linear-gradient(135deg, #e0af68, #f7768e);
+            color: #1a1b26; font-weight: 700;
+            border-radius: 10px; padding: 10px;
+        }
+        .btn-game-off {
+            background: linear-gradient(135deg, #9ece6a, #73daca);
+            color: #1a1b26; font-weight: 700;
+            border-radius: 10px; padding: 10px;
+        }
+        .btn-apply {
+            background: #7aa2f7; color: #1a1b26; font-weight: 700;
+            border-radius: 10px; padding: 8px;
+        }
+        .btn-bench {
+            background: #2a2b3d; color: #c0caf5;
+            border-radius: 10px; padding: 8px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
+        scale highlight { background: #7aa2f7; border-radius: 3px; }
+        scale slider {
+            background: #7aa2f7; min-width: 16px; min-height: 16px;
+            border-radius: 50%; box-shadow: 0 0 8px rgba(122,162,247,0.3);
+        }
+
+        dropdown {
+            background: #1a1b26; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .banner-gaming {
+            background: linear-gradient(90deg, rgba(224,175,104,0.1), rgba(247,118,142,0.1));
+            border: 1px solid rgba(224,175,104,0.15); color: #e0af68;
+            border-radius: 10px; padding: 8px 14px; font-weight: 600;
+        }
+        .banner-normal {
+            background: rgba(158,206,106,0.06);
+            border: 1px solid rgba(158,206,106,0.1); color: #9ece6a;
+            border-radius: 10px; padding: 8px 14px; font-weight: 600;
+        }
+
+        /* Benchmark progress bar */
+        .bench-progress { margin-top: 6px; }
+
+        /* Scroll fix: prevent scroll from changing sliders */
+        scale { margin-top: 4px; margin-bottom: 4px; }
+
+        separator { background: rgba(255,255,255,0.04); }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css.encode())
@@ -298,6 +357,9 @@ class CommandCenter(Adw.ApplicationWindow):
         GLib.timeout_add(1500, self.refresh)
 
     def build_ui(self):
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(640)
+
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         header = Adw.HeaderBar()
         header.add_css_class("flat")
@@ -306,40 +368,41 @@ class CommandCenter(Adw.ApplicationWindow):
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        content.set_margin_start(18)
-        content.set_margin_end(18)
-        content.set_margin_bottom(18)
-        scroll.set_child(content)
+        # FIX: disable scroll propagation so scrolling in the page doesn't change sliders
+        scroll.set_propagate_natural_height(False)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        content.set_margin_start(6)
+        content.set_margin_end(6)
+        content.set_margin_bottom(20)
+        clamp.set_child(content)
+        scroll.set_child(clamp)
         main_box.append(scroll)
 
         # CPU name
         cpu_name = self.topo.get_cpu_name()
-        name_label = Gtk.Label(label=cpu_name)
-        name_label.set_markup(f"<b>{cpu_name}</b>")
-        name_label.set_halign(Gtk.Align.START)
-        name_label.set_margin_top(8)
-        content.append(name_label)
+        name_lbl = Gtk.Label(label=cpu_name)
+        name_lbl.set_markup(f"<span size='16' weight='bold' color='#c0caf5'>{cpu_name}</span>")
+        name_lbl.set_halign(Gtk.Align.START)
+        name_lbl.set_margin_top(8)
+        content.append(name_lbl)
 
-        # === CPU Stats Bar ===
-        stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
-        stats.set_margin_top(10)
+        # Status banner
+        self.banner = Gtk.Label(label="")
+        self.banner.set_halign(Gtk.Align.START)
+        content.append(self.banner)
 
-        self.lbl_threads = self._stat(stats, "Threads", "24")
-        self.lbl_freq = self._stat(stats, "MHz", "---")
-        self.lbl_temp = self._stat(stats, "Temp", "--°")
-        self.lbl_gov = self._stat(stats, "Governor", "---")
-
+        # CPU stats
+        stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        stats.set_margin_top(8)
+        stats.set_homogeneous(True)
+        self.lbl_threads = self._stat_tile(stats, "Threads", "24", "blue")
+        self.lbl_freq = self._stat_tile(stats, "Clock", "---", "orange")
+        self.lbl_temp = self._stat_tile(stats, "Temp", "--°", "green")
         content.append(stats)
-        content.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
-        # === CCD Section ===
-        ccd_title = Gtk.Label(label="CPU CCDs")
-        ccd_title.set_markup("<b>CPU CCDs</b>")
-        ccd_title.set_halign(Gtk.Align.START)
-        ccd_title.add_css_class("section-title")
-        content.append(ccd_title)
-
+        # CCD section
+        content.append(self._section_header("CPU CCDs"))
         self.ccd_cards = {}
         for ccd_id in self.topo.get_all_ccd_ids():
             card = self._build_ccd_card(ccd_id)
@@ -347,271 +410,330 @@ class CommandCenter(Adw.ApplicationWindow):
             self.ccd_cards[ccd_id] = card
 
         # Game Mode button
-        self.gm_btn = Gtk.Button(label="🎮 Game Mode: AN")
+        self.gm_btn = Gtk.Button(label="🎮 Game Mode aktivieren")
         self.gm_btn.set_margin_top(8)
-        self.gm_btn.add_css_class("suggested-action")
+        self.gm_btn.add_css_class("btn-game-on")
         self.gm_btn.connect("clicked", self.on_toggle_gm)
         content.append(self.gm_btn)
 
-        # Benchmark button
-        self.bench_btn = Gtk.Button(label="⚡ CCD-Performance testen")
+        # Benchmark
+        self.bench_btn = Gtk.Button(label="⚡ CCD-Benchmark testen")
         self.bench_btn.set_margin_top(4)
+        self.bench_btn.add_css_class("btn-bench")
         self.bench_btn.connect("clicked", self.on_benchmark)
         content.append(self.bench_btn)
 
+        # Benchmark progress bar (hidden by default)
+        self.bench_progress = Gtk.ProgressBar()
+        self.bench_progress.set_margin_top(4)
+        self.bench_progress.set_visible(False)
+        content.append(self.bench_progress)
+
         self.bench_label = Gtk.Label(label="")
         self.bench_label.set_wrap(True)
+        self.bench_label.set_margin_top(4)
         content.append(self.bench_label)
 
         content.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
-        # === GPU Section ===
-        gpu_title = Gtk.Label(label="GPU")
-        gpu_title.set_markup("<b>🎨 NVIDIA GPU</b>")
-        gpu_title.set_halign(Gtk.Align.START)
-        gpu_title.add_css_class("section-title")
-        content.append(gpu_title)
+        # GPU section
+        content.append(self._section_header("🎨 NVIDIA GPU"))
+        content.append(self._build_gpu_card())
 
-        gpu_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    def _section_header(self, text):
+        lbl = Gtk.Label(label=text)
+        lbl.set_halign(Gtk.Align.START)
+        lbl.add_css_class("section-header")
+        return lbl
+
+    def _stat_tile(self, parent, label, value, color_class=""):
+        tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        tile.add_css_class("stat-tile")
+        v = Gtk.Label(label=value)
+        v.add_css_class("stat-value")
+        if color_class:
+            v.add_css_class(f"stat-value-{color_class}")
+        tile.append(v)
+        l = Gtk.Label(label=label)
+        l.add_css_class("stat-label")
+        l.set_halign(Gtk.Align.START)
+        tile.append(l)
+        parent.append(tile)
+        return v
+
+    def _build_ccd_card(self, ccd_id):
+        """Simplified CCD card: just name, badge, core dots — no per-core freq labels"""
+        cpus = self.topo.get_ccd_cpus(ccd_id)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.add_css_class("ccd-card")
+        card.set_margin_top(4)
+
+        # Title row: CCD name + badge + thread count
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        title = Gtk.Label(label=f"CCD{ccd_id}")
+        title.add_css_class("ccd-title")
+        title_row.append(title)
+
+        badge = Gtk.Label(label="")
+        badge.add_css_class("ccd-badge")
+        title_row.append(badge)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        title_row.append(spacer)
+
+        count_lbl = Gtk.Label(label=f"{len(cpus)} Threads")
+        count_lbl.add_css_class("stat-label")
+        title_row.append(count_lbl)
+        card.append(title_row)
+
+        # Core dots — clean, no freq numbers
+        cores_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        cores_box.set_margin_top(2)
+        for cpu in sorted(cpus):
+            dot = Gtk.Box()
+            dot.set_size_request(12, 12)
+            dot.add_css_class("core-dot")
+            dot.set_tooltip_text(f"CPU {cpu}")
+            cores_box.append(dot)
+        card.append(cores_box)
+
+        # Single avg freq line (not per-core)
+        avg_freq_lbl = Gtk.Label(label="---")
+        avg_freq_lbl.set_halign(Gtk.Align.START)
+        avg_freq_lbl.add_css_class("stat-label")
+        card.append(avg_freq_lbl)
+
+        card._badge = badge
+        card._cores = cores_box
+        card._avg_freq = avg_freq_lbl
+        return card
+
+    def _build_gpu_card(self):
+        gpu_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         gpu_card.add_css_class("gpu-card")
         gpu_card.set_margin_top(4)
 
-        # GPU name + stats
-        gpu_name_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.gpu_name_lbl = Gtk.Label(label=self.gpu.name)
-        self.gpu_name_lbl.set_markup(f"<b>{self.gpu.name}</b>")
+        self.gpu_name_lbl.set_markup(f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name}</span>")
         self.gpu_name_lbl.set_halign(Gtk.Align.START)
-        gpu_name_box.append(self.gpu_name_lbl)
-        gpu_card.append(gpu_name_box)
+        gpu_card.append(self.gpu_name_lbl)
 
-        # GPU stats row
-        gpu_stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        gpu_stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        gpu_stats.set_homogeneous(True)
         gpu_stats.set_margin_top(6)
-        self.gpu_clock_lbl = self._stat(gpu_stats, "Core", "---")
-        self.gpu_mem_lbl = self._stat(gpu_stats, "Memory", "---")
-        self.gpu_power_lbl = self._stat(gpu_stats, "Power", "---")
-        self.gpu_temp_lbl = self._stat(gpu_stats, "Temp", "---")
-        self.gpu_vram_lbl = self._stat(gpu_stats, "VRAM", "---")
+        self.gpu_clock_lbl = self._stat_tile(gpu_stats, "Core", "---", "blue")
+        self.gpu_mem_lbl = self._stat_tile(gpu_stats, "Memory", "---", "")
+        self.gpu_power_lbl = self._stat_tile(gpu_stats, "Power", "---", "orange")
+        self.gpu_temp_lbl = self._stat_tile(gpu_stats, "Temp", "---", "green")
         gpu_card.append(gpu_stats)
 
-        # P-State + Util
-        self.gpu_pstate_lbl = Gtk.Label(label="")
-        self.gpu_pstate_lbl.set_halign(Gtk.Align.START)
-        self.gpu_pstate_lbl.add_css_class("freq-label")
-        gpu_card.append(self.gpu_pstate_lbl)
+        self.gpu_info_lbl = Gtk.Label(label="")
+        self.gpu_info_lbl.set_halign(Gtk.Align.START)
+        self.gpu_info_lbl.add_css_class("stat-label")
+        self.gpu_info_lbl.set_margin_top(4)
+        gpu_card.append(self.gpu_info_lbl)
 
-        # GPU clock progress bar
         self.gpu_clock_bar = Gtk.ProgressBar()
         self.gpu_clock_bar.set_margin_top(6)
         gpu_card.append(self.gpu_clock_bar)
 
-        # === OC Controls ===
-        oc_label = Gtk.Label(label="Übertaktung")
-        oc_label.set_markup("<b>OC Offset (MHz)</b>")
-        oc_label.set_halign(Gtk.Align.START)
-        oc_label.set_margin_top(8)
-        gpu_card.append(oc_label)
+        # OC Section
+        oc_title = Gtk.Label(label="Übertaktung")
+        oc_title.set_markup("<span weight='bold' color='#7aa2f7' size='12'>⚡ Übertaktung</span>")
+        oc_title.set_halign(Gtk.Align.START)
+        oc_title.set_margin_top(10)
+        gpu_card.append(oc_title)
 
-        # GPU Core offset
-        gr_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gr_box.set_margin_top(4)
-        gr_box.append(Gtk.Label(label="Core:"))
+        # Core offset
+        gr_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        gr_row.set_margin_top(6)
+        gr_lbl = Gtk.Label(label="Core")
+        gr_lbl.set_markup("<span color='#c0caf5'>Core</span>")
+        gr_row.append(gr_lbl)
         self.gr_slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -500, 500, 5)
         self.gr_slider.set_hexpand(True)
         self.gr_slider.set_value(0)
         self.gr_slider.connect("value-changed", self.on_gr_slider)
-        gr_box.append(self.gr_slider)
-        self.gr_value_lbl = Gtk.Label(label="0 MHz")
-        self.gr_value_lbl.set_min_width_chars(8)
-        gr_box.append(self.gr_value_lbl)
-        gpu_card.append(gr_box)
+        # FIX: block mouse wheel from changing slider
+        scroll_ctrl_gr = Gtk.EventControllerScroll()
+        scroll_ctrl_gr.set_flags(Gtk.EventControllerScrollFlags.VERTICAL)
+        scroll_ctrl_gr.connect("scroll", lambda c, dx, dy: True)
+        self.gr_slider.add_controller(scroll_ctrl_gr)
+        gr_row.append(self.gr_slider)
+        self.gr_value_lbl = Gtk.Label(label="+0 MHz")
+        self.gr_value_lbl.set_xalign(1)
+        self.gr_value_lbl.add_css_class("stat-label")
+        gr_row.append(self.gr_value_lbl)
+        gpu_card.append(gr_row)
 
-        # GPU Memory offset
-        mem_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        mem_box.set_margin_top(4)
-        mem_box.append(Gtk.Label(label="VRAM:"))
+        # VRAM offset
+        mem_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        mem_row.set_margin_top(4)
+        mem_lbl = Gtk.Label(label="VRAM")
+        mem_lbl.set_markup("<span color='#c0caf5'>VRAM</span>")
+        mem_row.append(mem_lbl)
         self.mem_slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -500, 500, 5)
         self.mem_slider.set_hexpand(True)
         self.mem_slider.set_value(0)
         self.mem_slider.connect("value-changed", self.on_mem_slider)
-        mem_box.append(self.mem_slider)
-        self.mem_value_lbl = Gtk.Label(label="0 MHz")
-        self.mem_value_lbl.set_min_width_chars(8)
-        mem_box.append(self.mem_value_lbl)
-        gpu_card.append(mem_box)
+        # FIX: block mouse wheel from changing slider
+        scroll_ctrl_mem = Gtk.EventControllerScroll()
+        scroll_ctrl_mem.set_flags(Gtk.EventControllerScrollFlags.VERTICAL)
+        scroll_ctrl_mem.connect("scroll", lambda c, dx, dy: True)
+        self.mem_slider.add_controller(scroll_ctrl_mem)
+        mem_row.append(self.mem_slider)
+        self.mem_value_lbl = Gtk.Label(label="+0 MHz")
+        self.mem_value_lbl.set_xalign(1)
+        self.mem_value_lbl.add_css_class("stat-label")
+        mem_row.append(self.mem_value_lbl)
+        gpu_card.append(mem_row)
 
         # PowerMizer
-        pm_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        pm_box.set_margin_top(8)
-        pm_box.append(Gtk.Label(label="PowerMizer:"))
+        pm_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        pm_row.set_margin_top(6)
+        pm_lbl = Gtk.Label(label="PowerMizer")
+        pm_lbl.set_markup("<span color='#c0caf5'>PowerMizer</span>")
+        pm_row.append(pm_lbl)
         self.pm_combo = Gtk.DropDown.new_from_strings(["Adaptive", "Max Performance", "Auto"])
         self.pm_combo.set_selected(0)
-        self.pm_combo.connect("notify::selected", self.on_pm_changed)
-        pm_box.append(self.pm_combo)
-        gpu_card.append(pm_box)
+        pm_row.append(self.pm_combo)
+        gpu_card.append(pm_row)
 
-        # Apply OC button
-        self.oc_btn = Gtk.Button(label="OC anwenden")
+        # Apply button
+        self.oc_btn = Gtk.Button(label="⚡ OC anwenden")
         self.oc_btn.set_margin_top(8)
-        self.oc_btn.add_css_class("suggested-action")
+        self.oc_btn.add_css_class("btn-apply")
         self.oc_btn.connect("clicked", self.on_apply_oc)
         gpu_card.append(self.oc_btn)
 
-        # OC status
         self.oc_status_lbl = Gtk.Label(label="")
         self.oc_status_lbl.set_margin_top(4)
+        self.oc_status_lbl.set_halign(Gtk.Align.START)
         gpu_card.append(self.oc_status_lbl)
 
-        content.append(gpu_card)
-
-    def _stat(self, parent, label, value):
-        v = Gtk.Label(label=value)
-        v.add_css_class("stat-value")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        box.append(v)
-        l = Gtk.Label(label=label)
-        l.add_css_class("stat-label")
-        box.append(l)
-        parent.append(box)
-        return v
-
-    def _build_ccd_card(self, ccd_id):
-        cpus = self.topo.get_ccd_cpus(ccd_id)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.add_css_class("ccd-card")
-        box.set_margin_top(4)
-
-        # Title
-        title = Gtk.Label(label=f"CCD{ccd_id} — {len(cpus)} Threads")
-        title.set_markup(f"<b>CCD{ccd_id}</b> — {len(cpus)} Threads")
-        title.set_halign(Gtk.Align.START)
-        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        title_box.append(title)
-        best = Gtk.Label(label="")
-        title_box.append(best)
-        box.append(title_box)
-
-        # Core dots
-        cores_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
-        cores_box.set_margin_top(2)
-        for cpu in sorted(cpus):
-            dot = Gtk.Box()
-            dot.set_size_request(10, 10)
-            dot.add_css_class("core-dot")
-            dot.set_tooltip_text(f"CPU {cpu}")
-            cores_box.append(dot)
-        box.append(cores_box)
-
-        # Freq labels
-        freq_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        freq_box.set_margin_top(2)
-        freq_labels = []
-        for cpu in sorted(cpus):
-            lbl = Gtk.Label(label=f"{cpu}:---")
-            lbl.add_css_class("freq-label")
-            freq_box.append(lbl)
-            freq_labels.append((cpu, lbl))
-        box.append(freq_box)
-
-        box._freq_labels = freq_labels
-        box._best_label = best
-        box._cores = cores_box
-        return box
+        return gpu_card
 
     def refresh(self):
-        # CPU stats
         self.lbl_threads.set_label(str(self.topo.get_online_count()))
-        self.lbl_freq.set_label(str(self.topo.get_cpu_freq(0)))
-        self.lbl_temp.set_label(f"{self.topo.get_temp():.0f}°")
-        self.lbl_gov.set_label(self.topo.get_governor())
+        freq = self.topo.get_cpu_freq(0)
+        self.lbl_freq.set_label(f"{freq}")
+        temp = self.topo.get_temp()
+        self.lbl_temp.set_label(f"{temp:.0f}°")
 
-        # Game mode
         gm = self.topo.get_game_mode()
         if gm:
-            self.gm_btn.set_label("🟢 Game Mode: AUS")
-            self.gm_btn.remove_css_class("suggested-action")
-            self.gm_btn.add_css_class("destructive-action")
+            self.banner.set_markup(
+                "<span color='#e0af68' weight='600'>🎮 GAME MODE — CCD1 geparkt, 6 Kerne aktiv</span>")
+            self.banner.add_css_class("banner-gaming")
+            self.banner.remove_css_class("banner-normal")
+            self.gm_btn.set_label("🟢 Normal Mode aktivieren")
+            self.gm_btn.remove_css_class("btn-game-on")
+            self.gm_btn.add_css_class("btn-game-off")
         else:
-            self.gm_btn.set_label("🎮 Game Mode: AN")
-            self.gm_btn.remove_css_class("destructive-action")
-            self.gm_btn.add_css_class("suggested-action")
+            self.banner.set_markup(
+                f"<span color='#9ece6a' weight='600'>🟢 NORMAL — {self.topo.get_online_count()} Threads aktiv</span>")
+            self.banner.add_css_class("banner-normal")
+            self.banner.remove_css_class("banner-gaming")
+            self.gm_btn.set_label("🎮 Game Mode aktivieren")
+            self.gm_btn.add_css_class("btn-game-on")
+            self.gm_btn.remove_css_class("btn-game-off")
 
-        # CCD cards
+        # CCD cards — simplified, no per-core freq spam
         for ccd_id, card in self.ccd_cards.items():
             cpus = self.topo.get_ccd_cpus(ccd_id)
             online = sum(1 for c in cpus if self.topo.is_cpu_online(c))
-            card.remove_css_class("ccd-on" if online == len(cpus) else "ccd-off")
-            card.add_css_class("ccd-on" if online == len(cpus) else "ccd-off")
 
-            # dots
+            card.remove_css_class("ccd-card-active")
+            card.remove_css_class("ccd-card-parked")
+            if online == len(cpus):
+                card.add_css_class("ccd-card-active")
+                card._badge.set_label("ACTIVE")
+                card._badge.add_css_class("badge-active")
+                card._badge.remove_css_class("badge-parked")
+            else:
+                card.add_css_class("ccd-card-parked")
+                card._badge.set_label("PARKED")
+                card._badge.add_css_class("badge-parked")
+                card._badge.remove_css_class("badge-active")
+
+            # Dots
             i = 0
             child = card._cores.get_first_child()
             while child:
                 cpu = sorted(cpus)[i]
                 child.remove_css_class("core-on")
                 child.remove_css_class("core-off")
-                child.add_css_class("core-on" if self.topo.is_cpu_online(cpu) else "core-off")
+                child.remove_css_class("core-dot-boost")
+                if self.topo.is_cpu_online(cpu):
+                    f = self.topo.get_cpu_freq(cpu)
+                    if f > 4200:
+                        child.add_css_class("core-dot-boost")
+                    else:
+                        child.add_css_class("core-on")
+                else:
+                    child.add_css_class("core-off")
                 child = child.get_next_sibling()
                 i += 1
 
-            # freqs
-            for cpu, lbl in card._freq_labels:
-                f = self.topo.get_cpu_freq(cpu)
-                if f > 0:
-                    lbl.set_markup(f"<span color='#2ecc71'>{cpu}:{f}</span>")
-                else:
-                    lbl.set_markup(f"<span color='#e74c3c'>{cpu}:off</span>")
+            # Single avg freq (not per-core)
+            if online > 0:
+                freqs = [self.topo.get_cpu_freq(c) for c in cpus if self.topo.is_cpu_online(c)]
+                avg = sum(freqs) // len(freqs) if freqs else 0
+                card._avg_freq.set_label(f"Ø {avg} MHz")
+            else:
+                card._avg_freq.set_label("geparkt")
 
-        # GPU stats
+        # GPU
         self.gpu.update()
-        self.gpu_name_lbl.set_markup(f"<b>{self.gpu.name}</b>")
+        self.gpu_name_lbl.set_markup(f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name}</span>")
         self.gpu_clock_lbl.set_label(str(self.gpu.clock_gr))
         self.gpu_mem_lbl.set_label(str(self.gpu.clock_mem))
         self.gpu_power_lbl.set_label(f"{self.gpu.power_draw:.0f}W")
         self.gpu_temp_lbl.set_label(f"{self.gpu.temp:.0f}°")
-        self.gpu_vram_lbl.set_label(f"{self.gpu.vram_used}/{self.gpu.vram_total}M")
-        self.gpu_pstate_lbl.set_label(
-            f"P-State: {self.gpu.pstate}  |  GPU-Util: {self.gpu.util}%  |  "
-            f"Power Limit: {self.gpu.power_limit:.0f}W  |  "
-            f"Max: {self.gpu.max_clock_gr} MHz Core / {self.gpu.max_clock_mem} MHz Mem"
+        self.gpu_info_lbl.set_label(
+            f"P-State: {self.gpu.pstate}  |  VRAM: {self.gpu.vram_used}/{self.gpu.vram_total} MB  |  "
+            f"Util: {self.gpu.util}%  |  Power Limit: {self.gpu.power_limit:.0f}W"
         )
         if self.gpu.max_clock_gr > 0:
-            self.gpu_clock_bar.set_fraction(self.gpu.clock_gr / self.gpu.max_clock_gr)
+            self.gpu_clock_bar.set_fraction(min(self.gpu.clock_gr / self.gpu.max_clock_gr, 1.0))
 
-        # OC offsets
+        # OC
         self.gr_slider.set_value(self.gpu.gr_offset)
         self.mem_slider.set_value(self.gpu.mem_offset)
-        self.gr_value_lbl.set_label(f"{self.gpu.gr_offset} MHz")
-        self.mem_value_lbl.set_label(f"{self.gpu.mem_offset} MHz")
+        self.gr_value_lbl.set_label(f"{self.gpu.gr_offset:+d} MHz")
+        self.mem_value_lbl.set_label(f"{self.gpu.mem_offset:+d} MHz")
         self.pm_combo.set_selected(self.gpu.powermizer)
 
         return True
 
     def on_toggle_gm(self, btn):
         gm = self.topo.get_game_mode()
-        if gm:
-            # Game Mode aus → CCD1 reaktivieren
-            ok = CCDController.unpark(self.topo.get_ccd_cpus(1))
-        else:
-            # Game Mode an → CCD1 parken
-            ok = CCDController.park(self.topo.get_ccd_cpus(1))
+        self.gm_btn.set_sensitive(False)
+        self.gm_btn.set_label("⏳ Bitte warten...")
 
-        # Warte kurz und aktualisiere Status
-        def delayed_refresh():
-            self.topo.detect()  # Topologie neu erkennen
-            self.refresh()
-        GLib.timeout_add(800, delayed_refresh)
+        def run_in_thread():
+            if gm:
+                ok = CCDController.unpark()
+            else:
+                ok = CCDController.park()
+
+            def update_ui():
+                self.topo.detect()
+                self.gm_btn.set_sensitive(True)
+                self.refresh()
+
+            GLib.idle_add(update_ui)
+
+        threading.Thread(target=run_in_thread, daemon=True).start()
 
     def on_gr_slider(self, slider):
         v = int(slider.get_value())
-        self.gr_value_lbl.set_label(f"{v} MHz")
+        self.gr_value_lbl.set_label(f"{v:+d} MHz")
 
     def on_mem_slider(self, slider):
         v = int(slider.get_value())
-        self.mem_value_lbl.set_label(f"{v} MHz")
-
-    def on_pm_changed(self, combo, _):
-        pass  # Applied on button click
+        self.mem_value_lbl.set_label(f"{v:+d} MHz")
 
     def on_apply_oc(self, btn):
         gr_off = int(self.gr_slider.get_value())
@@ -627,13 +749,11 @@ class CommandCenter(Adw.ApplicationWindow):
 
         if ok:
             self.oc_status_lbl.set_markup(
-                f"<span color='#2ecc71'>✅ OC angewendet: Core +{gr_off} MHz, VRAM +{mem_off} MHz, "
-                f"PowerMizer={['Adaptive','Max Perf','Auto'][pm]}</span>"
-            )
+                f"<span color='#9ece6a'>✅ Core {gr_off:+d} MHz | VRAM {mem_off:+d} MHz | "
+                f"PM: {['Adaptive','Max Perf','Auto'][pm]}</span>")
         else:
             self.oc_status_lbl.set_markup(
-                "<span color='#e74c3c'>❌ Fehler beim Anwenden. Coolbits aktiviert?</span>"
-            )
+                "<span color='#f7768e'>❌ Fehler — Coolbits aktiviert?</span>")
         GLib.timeout_add(1000, self.refresh)
 
     def on_benchmark(self, btn):
@@ -641,61 +761,104 @@ class CommandCenter(Adw.ApplicationWindow):
         self.benching = True
         self.bench_btn.set_label("⚡ Benchmark läuft...")
         self.bench_btn.set_sensitive(False)
-        all_results = {}
+        self.bench_progress.set_visible(True)
+        self.bench_progress.set_fraction(0.0)
+        self.bench_label.set_markup("<span color='#7aa2f7' weight='bold'>📊 Benchmark startet...</span>\n<span color='#565f89'>Teste jeden Kern einzeln (≈25 Sekunden)</span>")
 
-        def bench_next(ccd_id):
-            if ccd_id >= self.topo.ccd_count():
+        all_results = {}
+        total_ccds = self.topo.ccd_count()
+
+        # Collect all physical cores across CCDs
+        all_cores = []
+        for ccd_id in range(total_ccds):
+            cpus = self.topo.get_ccd_cpus(ccd_id)
+            physical = [c for c in cpus if c < len(cpus) // 2 + 1]
+            all_cores.append((ccd_id, physical))
+
+        total_cores = sum(len(cores) for _, cores in all_cores)
+        cores_done = [0]
+
+        def bench_next(ccd_idx):
+            if ccd_idx >= len(all_cores):
+                # Done
                 self.benching = False
-                self.bench_btn.set_label("⚡ CCD-Performance testen")
+                self.bench_btn.set_label("⚡ CCD-Benchmark testen")
                 self.bench_btn.set_sensitive(True)
+                self.bench_progress.set_visible(False)
                 self._show_bench(all_results)
                 return
 
-            cpus = self.topo.get_ccd_cpus(ccd_id)
-            physical = [c for c in cpus if c < len(cpus) // 2 + 1]
-
-            def done(results):
-                all_results[ccd_id] = results
-                GLib.idle_add(lambda: bench_next(ccd_id + 1))
+            ccd_id, physical = all_cores[ccd_idx]
 
             def run():
                 results = {}
-                for cpu in physical:
+                for i, cpu in enumerate(physical):
+                    # Update UI: which core is being tested
+                    GLib.idle_add(lambda c=cpu, ccd=ccd_id, i=i, n=len(physical): self.bench_label.set_markup(
+                        f"<span color='#7aa2f7' weight='bold'>📊 Benchmark: CCD{ccd_id} — Kern {i+1}/{n} (CPU {c})</span>\n"
+                        f"<span color='#565f89'>{cores_done[0]}/{total_cores} Kerne getestet</span>"))
+                    GLib.idle_add(lambda: self.bench_progress.set_fraction(cores_done[0] / total_cores))
+
                     try:
                         r = subprocess.run(
                             ["taskset", "-c", str(cpu), "openssl", "speed", "-elapsed",
                              "-seconds", "2", "aes-256-cbc"],
-                            capture_output=True, text=True, timeout=10)
+                            capture_output=True, text=True, timeout=15)
                         last = r.stdout.strip().split("\n")[-1] if r.stdout else ""
                         parts = last.split()
-                        results[cpu] = float(parts[1]) if len(parts) >= 2 else 0
+                        # openssl returns values like "1206657.02k" — strip the 'k'
+                        raw = parts[5] if len(parts) >= 6 else "0"
+                        val_str = raw.rstrip("k").rstrip("K")
+                        try:
+                            results[cpu] = float(val_str)
+                        except:
+                            results[cpu] = 0.0
                     except:
-                        results[cpu] = 0
-                done(results)
+                        results[cpu] = 0.0
+                    cores_done[0] += 1
 
-            t = threading.Thread(target=run, daemon=True)
-            t.start()
+                all_results[ccd_id] = results
+                GLib.idle_add(lambda: bench_next(ccd_idx + 1))
+
+            threading.Thread(target=run, daemon=True).start()
 
         bench_next(0)
 
     def _show_bench(self, all_results):
-        text = "<b>📊 CCD Benchmark</b>\n"
+        text = "<span color='#7aa2f7' weight='bold'>📊 CCD Benchmark Ergebnis</span>\n\n"
         best_ccd = None
         best_avg = 0
         for ccd_id in sorted(all_results.keys()):
             results = all_results[ccd_id]
             if results:
                 avg = sum(results.values()) / len(results)
-                text += f"CCD{ccd_id}: {avg:.0f} kB/s avg\n"
                 if avg > best_avg:
                     best_avg = avg
                     best_ccd = ccd_id
+
+        for ccd_id in sorted(all_results.keys()):
+            results = all_results[ccd_id]
+            if results:
+                avg = sum(results.values()) / len(results)
+                marker = "🏆 " if ccd_id == best_ccd else "   "
+                color = "#e0af68" if ccd_id == best_ccd else "#c0caf5"
+                bar = "█" * int(avg / 50000) + "░" * (20 - int(avg / 50000))
+                text += f"<span color='{color}'>{marker}CCD{ccd_id}: {bar} {avg:.0f} kB/s</span>\n"
+
         if best_ccd is not None:
-            text += f"\n🏆 CCD{best_ccd} ist schneller → für Gaming behalten!"
+            text += f"\n<span color='#e0af68' weight='bold'>🏆 CCD{best_ccd} ist schneller → für Gaming behalten!</span>"
+
         self.bench_label.set_markup(text)
+        self.best_ccd = best_ccd
 
         for ccd_id, card in self.ccd_cards.items():
-            card._best_label.set_markup(" 🏆" if ccd_id == best_ccd else "")
+            if ccd_id == best_ccd:
+                card.add_css_class("ccd-card-best")
+                card._badge.set_label("BEST")
+                card._badge.add_css_class("badge-best")
+            else:
+                card.remove_css_class("ccd-card-best")
+                card._badge.remove_css_class("badge-best")
 
 
 class App(Adw.Application):
