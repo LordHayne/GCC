@@ -1131,6 +1131,70 @@ class CommandCenter(Adw.ApplicationWindow):
         .info-card-title { color: #c0caf5; font-weight: bold; font-size: 13px; }
         .info-card-sub { color: #565f89; font-size: 12px; }
 
+        /* ===== v2 dashboard ===== */
+        .v2-card {
+            background: #16161e; border-radius: 14px; padding: 16px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .card-title { font-size: 11px; font-weight: 700; color: #7aa2f7; letter-spacing: 2px; }
+        .card-meta { font-size: 10px; color: #a9b1d6; font-family: 'JetBrains Mono', monospace; }
+
+        /* Stat tiles */
+        .v2-tile {
+            background: #16161e; border-radius: 12px; padding: 12px 14px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .tile-value { font-size: 21px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: #c0caf5; }
+        .tile-unit { font-size: 11px; color: #565f89; font-family: 'JetBrains Mono', monospace; }
+        .tile-label { font-size: 9px; color: #565f89; letter-spacing: 1.2px; font-weight: 600; }
+        .c-cputemp { color: #9ece6a; } .c-cpuclock { color: #7aa2f7; }
+        .c-ram { color: #bb9af7; } .c-gputemp { color: #e0af68; } .c-gpupower { color: #bb9af7; }
+        levelbar.tile-bar trough { background: #1a1b26; border-radius: 2px; min-height: 4px; }
+        levelbar.tile-bar block.filled { border-radius: 2px; min-height: 4px; }
+        levelbar.lb-cputemp block.filled { background: #9ece6a; }
+        levelbar.lb-cpuclock block.filled { background: #7aa2f7; }
+        levelbar.lb-ram block.filled { background: #bb9af7; }
+        levelbar.lb-gputemp block.filled { background: #e0af68; }
+        levelbar.lb-gpupower block.filled { background: #bb9af7; }
+
+        /* CCD topology card */
+        .ccd-spec { font-size: 10px; color: #565f89; font-family: 'JetBrains Mono', monospace; }
+        .ccd-avg { font-size: 11px; color: #9ece6a; font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+        .thread-cell {
+            border-radius: 7px; background: rgba(255,255,255,0.025);
+            border: 1px solid rgba(255,255,255,0.05); padding: 6px 2px;
+        }
+        .thread-boost {
+            background: rgba(224,175,104,0.08); border: 1px solid rgba(224,175,104,0.3);
+        }
+        .thread-off {
+            background: rgba(247,118,142,0.03); border: 1px solid rgba(247,118,142,0.1);
+        }
+        .thread-id { font-size: 8px; color: #565f89; font-family: 'JetBrains Mono', monospace; }
+        .thread-freq { font-size: 11px; font-weight: 700; color: #c0caf5; font-family: 'JetBrains Mono', monospace; }
+        .thread-freq-boost { color: #e0af68; }
+        .thread-freq-off { color: #414868; }
+        .ccd-card { border-radius: 12px; padding: 12px 14px; }
+        .ccd-card-active { border: 1px solid rgba(158,206,106,0.25); background: rgba(158,206,106,0.04); }
+        .ccd-card-best { border: 1px solid rgba(158,206,106,0.35); background: rgba(158,206,106,0.06); }
+        .ccd-card-parked { border: 1px solid rgba(247,118,142,0.2); background: rgba(247,118,142,0.03); }
+
+        /* GPU bars */
+        .gpu-bar-label { font-size: 9px; color: #565f89; letter-spacing: 1.2px; font-weight: 600; }
+        .gpu-bar-value { font-size: 11px; color: #c0caf5; font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+        levelbar.gpu-bar trough { background: #1a1b26; border-radius: 3px; min-height: 6px; }
+        levelbar.gpu-bar block.filled {
+            background: linear-gradient(90deg, #7aa2f7, #7dcfff); border-radius: 3px; min-height: 6px;
+        }
+        .gpu-pstate {
+            font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 5px;
+            background: rgba(122,162,247,0.12); color: #7aa2f7; letter-spacing: 1px;
+        }
+        .offset-tile { background: #1a1b26; border-radius: 10px; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.05); }
+        .offset-label { font-size: 9px; color: #565f89; letter-spacing: 1px; font-weight: 600; }
+        .offset-value { font-size: 15px; color: #e0af68; font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+        .btn-quiet { background: rgba(255,255,255,0.03); color: #a9b1d6; border-radius: 9px; padding: 7px; border: 1px solid rgba(255,255,255,0.07); }
+
         /* === Sliders === */
         scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
         scale highlight { background: #7aa2f7; border-radius: 3px; }
@@ -1533,85 +1597,104 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     def _build_dashboard_page(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        # Title now lives in the shared header.
-
-        # Scrollable 3-column content
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        content.set_margin_start(16)
-        content.set_margin_end(16)
-        content.set_margin_top(12)
-        content.set_margin_bottom(16)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        outer.set_margin_start(24); outer.set_margin_end(24)
+        outer.set_margin_top(6); outer.set_margin_bottom(18)
 
-        # --- Center-left column: CPU stats + CCD cards + Game Mode ---
-        left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        left_col.set_hexpand(True)
+        # --- Stat tiles row (CPU temp/clock, RAM, GPU temp/power) ---
+        tiles = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        tiles.set_homogeneous(True)
+        self.tiles = {}
+        for key, label, unit, color in [
+            ("cputemp", "CPU TEMP", "°C", "#9ece6a"),
+            ("cpuclock", "CPU CLOCK", "MHz avg", "#7aa2f7"),
+            ("ram", "MEMORY", "GB", "#bb9af7"),
+            ("gputemp", "GPU TEMP", "°C", "#e0af68"),
+            ("gpupower", "GPU POWER", "W", "#bb9af7"),
+        ]:
+            tiles.append(self._v2_tile(key, label, unit, color))
+        outer.append(tiles)
 
-        # Status banner
-        self.banner = Gtk.Label(label="")
-        self.banner.set_halign(Gtk.Align.START)
-        left_col.append(self.banner)
+        # --- Two-column: CCD topology | GPU + actions ---
+        cols = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        cols.set_vexpand(True)
 
-        # CPU stats tiles (Cores, Clock, Temp, Governor)
-        stats = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        stats.set_margin_top(4)
-        stats.set_homogeneous(True)
-        self.lbl_threads = self._stat_tile(stats, "Cores", "24", "blue")
-        self.lbl_freq = self._stat_tile(stats, "Clock", "---", "orange")
-        self.lbl_temp = self._stat_tile(stats, "Temp", "--", "green")
-        self.lbl_governor = self._stat_tile(stats, "Governor", "---", "")
-        left_col.append(stats)
-
-        # CCD section — cards are rebuilt whenever the topology changes
-        ccx = self.topo.ccx_per_ccd()
-        header = "CPU CCDs" + (f"  ({ccx} CCX per CCD)" if ccx > 1 else "")
-        left_col.append(self._section_header(header))
-        self.ccd_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        left_col.append(self.ccd_box)
+        # Left: CPU / CCD topology card
+        topo_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        topo_card.add_css_class("v2-card")
+        topo_card.set_hexpand(True)
+        thead = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        tl = Gtk.Label(label="CPU · CCD TOPOLOGY"); tl.add_css_class("card-title"); tl.set_xalign(0)
+        thead.append(tl)
+        sp = Gtk.Box(); sp.set_hexpand(True); thead.append(sp)
+        self.topo_meta = Gtk.Label(label=""); self.topo_meta.add_css_class("card-meta")
+        thead.append(self.topo_meta)
+        topo_card.append(thead)
+        self.ccd_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.ccd_box.set_vexpand(True)
+        topo_card.append(self.ccd_box)
         self.ccd_cards = {}
         self.rebuild_ccd_cards()
+        cols.append(topo_card)
 
-        # Game Mode button
-        self.gm_btn = Gtk.Button(label="Enable Game Mode")
-        self.gm_btn.set_margin_top(8)
-        self.gm_btn.add_css_class("btn-game-on")
-        self.gm_btn.connect("clicked", self.on_toggle_gm)
-        left_col.append(self.gm_btn)
+        # Right: GPU panel + overview
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        right.set_size_request(340, -1)
+        right.append(self._build_gpu_panel())
+        right.append(self._build_overview_card())
+        cols.append(right)
 
-        # Recovery: brings every core back even if the layout is unknown
-        self.restore_btn = Gtk.Button(label="Restore all cores")
-        self.restore_btn.set_margin_top(4)
-        self.restore_btn.connect("clicked", self.on_restore_cores)
-        left_col.append(self.restore_btn)
-
-        self.gm_status_lbl = Gtk.Label(label="")
-        self.gm_status_lbl.set_halign(Gtk.Align.START)
-        self.gm_status_lbl.set_wrap(True)
-        self.gm_status_lbl.set_margin_top(4)
-        left_col.append(self.gm_status_lbl)
-
-        # Quick-info cards: detected games + benchmark status, both clickable.
-        left_col.append(self._section_header("Overview"))
-        self.games_info = self._info_card(
-            "🎮", "Games", "Scanning…", "games")
-        left_col.append(self.games_info)
-        self.bench_info = self._info_card(
-            "🏆", "CCD Benchmark", "…", "benchmark")
-        left_col.append(self.bench_info)
-        self._refresh_overview_async()
-
-        content.append(left_col)
-
-        # --- Right column: GPU monitoring + Overclocking ---
-        right_col = self._build_gpu_panel()
-        content.append(right_col)
-
-        scroll.set_child(content)
+        outer.append(cols)
+        scroll.set_child(outer)
         page.append(scroll)
-
         return page
+
+    def _v2_tile(self, key, label, unit, color):
+        """A stat tile: big value + unit, small label, thin progress bar."""
+        tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        tile.add_css_class("v2-tile")
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.set_valign(Gtk.Align.BASELINE)
+        val = Gtk.Label(label="—"); val.add_css_class("tile-value"); val.set_xalign(0)
+        val.set_attributes(None)
+        row.append(val)
+        u = Gtk.Label(label=unit); u.add_css_class("tile-unit"); u.set_xalign(0)
+        row.append(u)
+        tile.append(row)
+        lab = Gtk.Label(label=label); lab.add_css_class("tile-label"); lab.set_xalign(0)
+        tile.append(lab)
+        bar = Gtk.LevelBar(); bar.set_min_value(0.0); bar.set_max_value(1.0)
+        bar.set_value(0.0); bar.add_css_class("tile-bar"); bar.add_css_class(f"lb-{key}")
+        tile.append(bar)
+        val.add_css_class(f"c-{key}")
+        self.tiles[key] = {"val": val, "bar": bar, "unit": u}
+        return tile
+
+    def _build_overview_card(self):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+        card.add_css_class("v2-card")
+        t = Gtk.Label(label="OVERVIEW"); t.add_css_class("card-title"); t.set_xalign(0)
+        card.append(t)
+        self.games_info = self._info_card("🎮", "Games", "Scanning…", "games")
+        card.append(self.games_info)
+        self.bench_info = self._info_card("🏆", "CCD Benchmark", "…", "benchmark")
+        card.append(self.bench_info)
+        # Quiet recovery action (kept from before; header toggle handles on/off)
+        self.restore_btn = Gtk.Button(label="Restore all cores")
+        self.restore_btn.add_css_class("btn-quiet")
+        self.restore_btn.set_margin_top(2)
+        self.restore_btn.connect("clicked", self.on_restore_cores)
+        card.append(self.restore_btn)
+        self.gm_status_lbl = Gtk.Label(label="")
+        self.gm_status_lbl.set_xalign(0); self.gm_status_lbl.set_wrap(True)
+        self.gm_status_lbl.add_css_class("info-card-sub")
+        card.append(self.gm_status_lbl)
+        self._refresh_overview_async()
+        return card
 
     def _info_card(self, emoji, title, subtitle, target_page):
         """Small clickable card for the dashboard overview → jumps to a page."""
@@ -2059,109 +2142,109 @@ class CommandCenter(Adw.ApplicationWindow):
             self.ccd_cards[ccd_id] = card
 
     def _build_ccd_card(self, ccd_id):
-        """Simplified CCD card: name, badge, core dots, avg freq."""
+        """CCD card with a per-thread frequency grid (v2 design)."""
         cpus = self.topo.get_ccd_cpus(ccd_id)
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card.add_css_class("ccd-card")
-        card.set_margin_top(4)
+        card.set_vexpand(True)
 
-        # Title row: CCD name + badge + thread count
-        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        title = Gtk.Label(label=f"CCD{ccd_id}")
-        title.add_css_class("ccd-title")
+        # Title row: name + badge + spec + avg
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title = Gtk.Label(label=f"CCD{ccd_id}"); title.add_css_class("ccd-title")
         title_row.append(title)
-
-        badge = Gtk.Label(label="")
-        badge.add_css_class("ccd-badge")
+        badge = Gtk.Label(label=""); badge.add_css_class("ccd-badge")
         title_row.append(badge)
-
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        title_row.append(spacer)
-
-        count_lbl = Gtk.Label(label=f"{self.topo.core_count(ccd_id)} Cores")
-        count_lbl.add_css_class("stat-label")
-        title_row.append(count_lbl)
+        sp = Gtk.Box(); sp.set_hexpand(True); title_row.append(sp)
+        spec = Gtk.Label(
+            label=f"{self.topo.core_count(ccd_id)}C/{len(cpus)}T · 32 MB L3")
+        spec.add_css_class("ccd-spec")
+        title_row.append(spec)
+        avg = Gtk.Label(label="—"); avg.add_css_class("ccd-avg")
+        title_row.append(avg)
         card.append(title_row)
 
-        # Core dots
-        cores_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        cores_box.set_margin_top(2)
-        for cpu in sorted(cpus):
-            dot = Gtk.Box()
-            dot.set_size_request(12, 12)
-            dot.add_css_class("core-dot")
-            dot.set_tooltip_text(f"CPU {cpu}")
-            cores_box.append(dot)
-        card.append(cores_box)
-
-        # Avg freq line
-        avg_freq_lbl = Gtk.Label(label="---")
-        avg_freq_lbl.set_halign(Gtk.Align.START)
-        avg_freq_lbl.add_css_class("stat-label")
-        card.append(avg_freq_lbl)
+        # Thread grid — 6 columns
+        grid = Gtk.Grid()
+        grid.set_row_spacing(6); grid.set_column_spacing(6)
+        grid.set_column_homogeneous(True)
+        grid.set_vexpand(True)
+        cells = {}
+        for i, cpu in enumerate(sorted(cpus)):
+            cell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            cell.add_css_class("thread-cell")
+            cell.set_vexpand(True)
+            tid = Gtk.Label(label=f"T{i}"); tid.add_css_class("thread-id")
+            cell.append(tid)
+            freq = Gtk.Label(label="—"); freq.add_css_class("thread-freq")
+            cell.append(freq)
+            grid.attach(cell, i % 6, i // 6, 1, 1)
+            cells[cpu] = {"cell": cell, "freq": freq}
+        card.append(grid)
 
         card._badge = badge
-        card._cores = cores_box
-        card._avg_freq = avg_freq_lbl
+        card._cells = cells
+        card._avg = avg
         return card
 
+    def _gpu_bar(self, label):
+        """A GPU metric bar: label + value on one row, fill bar below."""
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lab = Gtk.Label(label=label); lab.add_css_class("gpu-bar-label"); lab.set_xalign(0)
+        lab.set_hexpand(True)
+        top.append(lab)
+        val = Gtk.Label(label="—"); val.add_css_class("gpu-bar-value")
+        top.append(val)
+        wrap.append(top)
+        bar = Gtk.LevelBar(); bar.set_min_value(0.0); bar.set_max_value(1.0)
+        bar.set_value(0.0); bar.add_css_class("gpu-bar")
+        wrap.append(bar)
+        return wrap, val, bar
+
     def _build_gpu_panel(self):
-        """Build the right-column GPU panel with monitoring + overclocking."""
-        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        panel.set_size_request(290, -1)
-        panel.set_hexpand(False)
+        """GPU card: metric bars + overclocking controls (v2 design)."""
+        gpu_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
+        gpu_card.add_css_class("v2-card")
 
-        gpu_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        gpu_card.add_css_class("gpu-card")
+        # Header: GPU · <short name> + P-state badge
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        short = (self.gpu.name or "GPU").replace("NVIDIA GeForce ", "")
+        self.gpu_name_lbl = Gtk.Label(label=f"GPU · {short}")
+        self.gpu_name_lbl.add_css_class("card-title"); self.gpu_name_lbl.set_xalign(0)
+        head.append(self.gpu_name_lbl)
+        sp = Gtk.Box(); sp.set_hexpand(True); head.append(sp)
+        self.gpu_pstate_badge = Gtk.Label(label="—"); self.gpu_pstate_badge.add_css_class("gpu-pstate")
+        head.append(self.gpu_pstate_badge)
+        gpu_card.append(head)
 
-        # GPU name
-        self.gpu_name_lbl = Gtk.Label(label=self.gpu.name or "NVIDIA GPU")
-        self.gpu_name_lbl.set_markup(
-            f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name or 'NVIDIA GPU'}</span>")
-        self.gpu_name_lbl.set_halign(Gtk.Align.START)
-        gpu_card.append(self.gpu_name_lbl)
+        # Metric bars
+        self.gpu_bars = {}
+        for key, label in [("util", "UTILIZATION"), ("vram", "VRAM"),
+                           ("core", "CORE CLOCK"), ("power", "POWER DRAW")]:
+            wrap, val, bar = self._gpu_bar(label)
+            gpu_card.append(wrap)
+            self.gpu_bars[key] = {"val": val, "bar": bar}
 
-        # GPU stats row 1: Core, Memory, Power
-        gpu_stats1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        gpu_stats1.set_homogeneous(True)
-        gpu_stats1.set_margin_top(6)
-        self.gpu_clock_lbl = self._stat_tile(gpu_stats1, "Core", "---", "blue")
-        self.gpu_mem_lbl = self._stat_tile(gpu_stats1, "Memory", "---", "")
-        self.gpu_power_lbl = self._stat_tile(gpu_stats1, "Power", "---", "orange")
-        gpu_card.append(gpu_stats1)
+        # Offset display tiles
+        off = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        off.set_homogeneous(True); off.set_margin_top(2)
+        for key, label in [("gr", "GPU OFFSET"), ("mem", "MEM OFFSET")]:
+            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            t.add_css_class("offset-tile")
+            l = Gtk.Label(label=label); l.add_css_class("offset-label"); l.set_xalign(0)
+            t.append(l)
+            v = Gtk.Label(label="+0 MHz"); v.add_css_class("offset-value"); v.set_xalign(0)
+            t.append(v)
+            off.append(t)
+            self.gpu_bars[f"off_{key}"] = v
+        gpu_card.append(off)
 
-        # GPU stats row 2: Temp, VRAM
-        gpu_stats2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        gpu_stats2.set_homogeneous(True)
-        gpu_stats2.set_margin_top(4)
-        self.gpu_temp_lbl = self._stat_tile(gpu_stats2, "Temp", "---", "green")
-        self.gpu_vram_lbl = self._stat_tile(gpu_stats2, "VRAM", "---", "")
-        gpu_card.append(gpu_stats2)
-
-        # Info label (P-State, Util, Power Limit)
-        self.gpu_info_lbl = Gtk.Label(label="")
-        self.gpu_info_lbl.set_halign(Gtk.Align.START)
-        self.gpu_info_lbl.add_css_class("stat-label")
-        self.gpu_info_lbl.set_margin_top(4)
-        gpu_card.append(self.gpu_info_lbl)
-
-        # Clock progress bar
-        self.gpu_clock_bar = Gtk.ProgressBar()
-        self.gpu_clock_bar.set_margin_top(6)
-        gpu_card.append(self.gpu_clock_bar)
-
-        # OC Section
-        oc_title = Gtk.Label(label="Overclocking")
-        oc_title.set_markup(
-            "<span weight='bold' color='#7aa2f7' size='12'>Overclocking</span>")
-        oc_title.set_halign(Gtk.Align.START)
-        oc_title.set_margin_top(10)
+        # --- Overclocking controls (kept, functional) ---
+        oc_title = Gtk.Label(label="OVERCLOCKING"); oc_title.add_css_class("card-title")
+        oc_title.set_xalign(0); oc_title.set_margin_top(4)
         gpu_card.append(oc_title)
 
-        # Core offset slider
         gr_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gr_row.set_margin_top(6)
         gr_lbl = Gtk.Label(label="Core")
         gr_lbl.set_markup("<span color='#c0caf5'>Core</span>")
         gr_row.append(gr_lbl)
@@ -2225,8 +2308,7 @@ class CommandCenter(Adw.ApplicationWindow):
         self.oc_status_lbl.set_halign(Gtk.Align.START)
         gpu_card.append(self.oc_status_lbl)
 
-        panel.append(gpu_card)
-        return panel
+        return gpu_card
 
     # ============================================================
     # Refresh / Live Updates
@@ -2254,20 +2336,39 @@ class CommandCenter(Adw.ApplicationWindow):
         threading.Thread(target=self._sample, daemon=True).start()
         return False  # so GLib.timeout_add(..., self.refresh) fires only once
 
+    @staticmethod
+    def _read_ram():
+        """(used_gb, total_gb) from /proc/meminfo, or (0, 0)."""
+        try:
+            info = {}
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    k, _, v = line.partition(":")
+                    info[k] = int(v.split()[0])  # kB
+            total = info.get("MemTotal", 0) / 1048576
+            avail = info.get("MemAvailable", 0) / 1048576
+            return total - avail, total
+        except (OSError, ValueError):
+            return 0.0, 0.0
+
     def _collect(self):
         topo = self.topo
         ccds = {}
+        all_freqs = []
         for ccd_id in topo.get_all_ccd_ids():
             cpus = topo.get_ccd_cpus(ccd_id)
             freqs = {c: (topo.get_cpu_freq(c) if topo.is_cpu_online(c) else None)
                      for c in cpus}
             ccds[ccd_id] = {"cpus": sorted(cpus), "freqs": freqs}
+            all_freqs += [f for f in freqs.values() if f]
 
         self.gpu.update()  # slow: nvidia-smi + 3x nvidia-settings
+        ram_used, ram_total = self._read_ram()
 
         return {
             "cores": topo.online_core_count(),
             "freq0": topo.get_cpu_freq(0),
+            "avg_clock": sum(all_freqs) // len(all_freqs) if all_freqs else 0,
             "temp": topo.get_temp(),  # slow: `sensors`
             "gov": topo.get_governor(),
             "game_mode": topo.game_mode_active(),
@@ -2276,14 +2377,34 @@ class CommandCenter(Adw.ApplicationWindow):
             "ccd_count": topo.ccd_count(),
             "complete": topo.complete,
             "ccds": ccds,
+            "ram_used": ram_used,
+            "ram_total": ram_total,
         }
+
+    @staticmethod
+    def _frac(x, hi):
+        return max(0.0, min(x / hi, 1.0)) if hi else 0.0
 
     def _render(self, d):
         cores = d["cores"]
-        self.lbl_threads.set_label(str(cores))
-        self.lbl_freq.set_label(f"{d['freq0']}")
-        self.lbl_temp.set_label(f"{d['temp']:.0f}")
-        self.lbl_governor.set_label(d["gov"])
+        # Stat tiles
+        self.tiles["cputemp"]["val"].set_label(f"{d['temp']:.0f}")
+        self.tiles["cputemp"]["bar"].set_value(self._frac(d['temp'], 95))
+        self.tiles["cpuclock"]["val"].set_label(f"{d['avg_clock']/1000:.2f}"
+                                                if d['avg_clock'] else "—")
+        self.tiles["cpuclock"]["unit"].set_label("GHz avg")
+        self.tiles["cpuclock"]["bar"].set_value(self._frac(d['avg_clock'], 4700))
+        if d["ram_total"]:
+            self.tiles["ram"]["val"].set_label(f"{d['ram_used']:.1f}")
+            self.tiles["ram"]["unit"].set_label(f"/ {d['ram_total']:.0f} GB")
+            self.tiles["ram"]["bar"].set_value(self._frac(d['ram_used'], d['ram_total']))
+        self.tiles["gputemp"]["val"].set_label(f"{self.gpu.temp:.0f}")
+        self.tiles["gputemp"]["bar"].set_value(self._frac(self.gpu.temp, 95))
+        self.tiles["gpupower"]["val"].set_label(f"{self.gpu.power_draw:.0f}")
+        if self.gpu.power_limit:
+            self.tiles["gpupower"]["unit"].set_label(f"W / {self.gpu.power_limit:.0f}")
+            self.tiles["gpupower"]["bar"].set_value(
+                self._frac(self.gpu.power_draw, self.gpu.power_limit))
 
         gm_on = d["game_mode"]
         parked = ", ".join(f"CCD{c}" for c in d["parked"])
@@ -2310,26 +2431,6 @@ class CommandCenter(Adw.ApplicationWindow):
             self.side_hero_set(False)
         self.status_footer_lbl.set_label(f"governor: {d['gov']}")
 
-        # Old dashboard banner + button (still present until dashboard rebuild)
-        if hasattr(self, "banner"):
-            if gm_on:
-                self.banner.set_markup(
-                    f"<span color='#e0af68' weight='600'>GAME MODE - {parked} parked, "
-                    f"{cores} cores active</span>")
-                self.banner.add_css_class("banner-gaming")
-                self.banner.remove_css_class("banner-normal")
-                self.gm_btn.set_label("Disable Game Mode")
-                self.gm_btn.remove_css_class("btn-game-on")
-                self.gm_btn.add_css_class("btn-game-off")
-            else:
-                self.banner.set_markup(
-                    f"<span color='#9ece6a' weight='600'>NORMAL - {cores} cores active</span>")
-                self.banner.add_css_class("banner-normal")
-                self.banner.remove_css_class("banner-gaming")
-                self.gm_btn.set_label("Enable Game Mode")
-                self.gm_btn.add_css_class("btn-game-on")
-                self.gm_btn.remove_css_class("btn-game-off")
-
         # Game Mode needs something to park — a single-CCD CPU has nothing.
         single_ccd = d["ccd_count"] < 2
         gm_ok = not single_ccd and d["complete"]
@@ -2346,7 +2447,10 @@ class CommandCenter(Adw.ApplicationWindow):
             self.gm_btn.set_sensitive(gm_ok)
             self.gm_btn.set_tooltip_text(tip)
 
-        # CCD cards
+        # Topology meta line + CCD thread grids
+        if hasattr(self, "topo_meta"):
+            self.topo_meta.set_label(f"{cores * (2 if self.topo.smt_enabled() else 1)}"
+                                     f"/{len(self.topo.present_cpus())} threads · {d['temp']:.0f}°C")
         for ccd_id, card in self.ccd_cards.items():
             info = d["ccds"].get(ccd_id)
             if not info:
@@ -2355,60 +2459,54 @@ class CommandCenter(Adw.ApplicationWindow):
             freqs = info["freqs"]
             online = sum(1 for c in cpus if freqs[c] is not None)
 
-            card.remove_css_class("ccd-card-active")
-            card.remove_css_class("ccd-card-parked")
+            card.set_css_classes(
+                ["ccd-card", "ccd-card-parked"] if online == 0 else
+                (["ccd-card", "ccd-card-best"] if d["ccd_count"] > 1 and ccd_id == d["keep"]
+                 else ["ccd-card", "ccd-card-active"]))
             if online == 0:
-                card.add_css_class("ccd-card-parked")
+                card._badge.set_css_classes(["ccd-badge", "badge-parked"])
                 card._badge.set_label("PARKED")
-                card._badge.add_css_class("badge-parked")
-                card._badge.remove_css_class("badge-active")
             else:
-                card.add_css_class("ccd-card-active")
-                label = "ACTIVE"
-                if d["ccd_count"] > 1 and ccd_id == d["keep"]:
-                    label = "ACTIVE · KEEP"
-                if online < len(cpus):
-                    label = f"PARTIAL ({online}/{len(cpus)})"
-                card._badge.set_label(label)
-                card._badge.add_css_class("badge-active")
-                card._badge.remove_css_class("badge-parked")
+                best = d["ccd_count"] > 1 and ccd_id == d["keep"]
+                card._badge.set_css_classes(["ccd-badge", "badge-best" if best else "badge-active"])
+                card._badge.set_label("ACTIVE · BEST" if best else "ACTIVE")
 
-            # Core dots
-            child = card._cores.get_first_child()
-            for cpu in cpus:
-                if child is None:
-                    break
-                child.remove_css_class("core-on")
-                child.remove_css_class("core-off")
-                child.remove_css_class("core-dot-boost")
-                f = freqs[cpu]
+            # Thread cells
+            for cpu, w in card._cells.items():
+                f = freqs.get(cpu)
                 if f is None:
-                    child.add_css_class("core-off")
+                    w["cell"].set_css_classes(["thread-cell", "thread-off"])
+                    w["freq"].set_label("OFF")
+                    w["freq"].set_css_classes(["thread-freq", "thread-freq-off"])
                 elif f > 4200:
-                    child.add_css_class("core-dot-boost")
+                    w["cell"].set_css_classes(["thread-cell", "thread-boost"])
+                    w["freq"].set_label(f"{f/1000:.2f}")
+                    w["freq"].set_css_classes(["thread-freq", "thread-freq-boost"])
                 else:
-                    child.add_css_class("core-on")
-                child = child.get_next_sibling()
+                    w["cell"].set_css_classes(["thread-cell"])
+                    w["freq"].set_label(f"{f/1000:.2f}")
+                    w["freq"].set_css_classes(["thread-freq"])
 
             live = [f for f in freqs.values() if f is not None]
-            card._avg_freq.set_label(
-                f"Avg {sum(live) // len(live)} MHz" if live else "parked")
+            card._avg.set_label(f"Ø {sum(live)/len(live)/1000:.2f} GHz" if live else "parked")
 
-        # GPU
-        self.gpu_name_lbl.set_markup(
-            f"<span size='14' weight='bold' color='#c0caf5'>{self.gpu.name or 'NVIDIA GPU'}</span>")
-        self.gpu_clock_lbl.set_label(str(self.gpu.clock_gr))
-        self.gpu_mem_lbl.set_label(str(self.gpu.clock_mem))
-        self.gpu_power_lbl.set_label(f"{self.gpu.power_draw:.0f}W")
-        self.gpu_temp_lbl.set_label(f"{self.gpu.temp:.0f}")
-        self.gpu_vram_lbl.set_label(str(self.gpu.vram_used))
-        self.gpu_info_lbl.set_label(
-            f"P-State: {self.gpu.pstate}  |  Util: {self.gpu.util}%  |  "
-            f"Power Limit: {self.gpu.power_limit:.0f}W"
-        )
-        if self.gpu.max_clock_gr > 0:
-            self.gpu_clock_bar.set_fraction(
-                min(self.gpu.clock_gr / self.gpu.max_clock_gr, 1.0))
+        # GPU header + P-state + bars
+        short = (self.gpu.name or "GPU").replace("NVIDIA GeForce ", "")
+        self.gpu_name_lbl.set_label(f"GPU · {short}")
+        self.gpu_pstate_badge.set_label(self.gpu.pstate or "—")
+        self.gpu_bars["util"]["val"].set_label(f"{self.gpu.util} %")
+        self.gpu_bars["util"]["bar"].set_value(self._frac(self.gpu.util, 100))
+        if self.gpu.vram_total:
+            self.gpu_bars["vram"]["val"].set_label(
+                f"{self.gpu.vram_used/1024:.1f} / {self.gpu.vram_total/1024:.0f} GB")
+            self.gpu_bars["vram"]["bar"].set_value(self._frac(self.gpu.vram_used, self.gpu.vram_total))
+        self.gpu_bars["core"]["val"].set_label(f"{self.gpu.clock_gr} MHz")
+        self.gpu_bars["core"]["bar"].set_value(
+            self._frac(self.gpu.clock_gr, self.gpu.max_clock_gr or 2000))
+        self.gpu_bars["power"]["val"].set_label(f"{self.gpu.power_draw:.0f} W")
+        self.gpu_bars["power"]["bar"].set_value(self._frac(self.gpu.power_draw, self.gpu.power_limit or 300))
+        self.gpu_bars["off_gr"].set_label(f"{self.gpu.gr_offset:+d} MHz")
+        self.gpu_bars["off_mem"].set_label(f"{self.gpu.mem_offset:+d} MHz")
 
         # OC — only mirror the driver's values while the user is not editing,
         # otherwise the next tick would yank the slider back mid-drag.
