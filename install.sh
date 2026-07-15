@@ -132,59 +132,23 @@ echo
 echo "📦 Installing system files (requires sudo)..."
 echo
 
-# 1. Helper scripts → /usr/local/bin
-# Two of them on purpose: runtime tweaks (core parking, governor) run without a
-# password, persistent /etc changes ask for authentication. See the polkit file.
-sudo install -m 755 -o root -g root "$SCRIPT_DIR/gaming-ccd-helper" /usr/local/bin/gaming-ccd-helper
-sudo install -m 755 -o root -g root "$SCRIPT_DIR/gaming-cc-etc-helper" /usr/local/bin/gaming-cc-etc-helper
-echo "  ✅ Helpers installed → /usr/local/bin/gaming-{ccd,cc-etc}-helper"
-
-# 2. Polkit policy → /usr/share/polkit-1/actions/
-# Must be world-readable (0644) — plain `cp` would carry over the repo file's
-# permissions and polkit may then ignore the action.
-sudo install -m 644 -o root -g root "$SCRIPT_DIR/com.gaming.commandcenter.policy" \
-    /usr/share/polkit-1/actions/com.gaming.commandcenter.policy
-echo "  ✅ Polkit policy installed (no password for Game Mode)"
-
-# 3. App icon → system icons
-for size in 48 64 128 256 512; do
-    sudo mkdir -p "/usr/share/icons/hicolor/${size}x${size}/apps"
-    sudo cp "$SCRIPT_DIR/GCC_logo.png" "/usr/share/icons/hicolor/${size}x${size}/apps/gaming-command-center.png"
-done
-sudo mkdir -p /usr/share/icons/hicolor/scalable/apps
-sudo cp "$SCRIPT_DIR/GCC_logo.png" /usr/share/icons/hicolor/scalable/apps/gaming-command-center.png
-sudo gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
-echo "  ✅ App icon installed"
-
-# 4. Desktop file → applications
-# The basename MUST equal the app-id (Adw.Application application_id), otherwise
-# Wayland compositors (COSMIC, GNOME, …) can't map the window to this entry and
-# fall back to a generic/blank taskbar icon. StartupWMClass covers X11 as well.
-sudo mkdir -p /usr/share/applications
-# Drop the old mismatched name from earlier installs so we don't leave a
-# duplicate — both system-wide and the user-local copy some early builds wrote.
-sudo rm -f /usr/share/applications/gaming-command-center.desktop
+# Clean any user-local leftovers from early builds first, as the user (root's
+# $HOME isn't ours, so gaming-cc-setup can't do this part).
 rm -f "$HOME/.local/share/applications/gaming-command-center.desktop"
-sudo tee /usr/share/applications/com.gaming.commandcenter.desktop > /dev/null << 'DESKTOP'
-[Desktop Entry]
-Name=Gaming Command Center
-Comment=Linux gaming optimization — CPU CCD parking, GPU overclocking, system setup wizard
-Exec=python3 INSTALLDIR/command-center.py
-Icon=gaming-command-center
-Terminal=false
-Type=Application
-StartupWMClass=com.gaming.commandcenter
-Categories=Game;System;Utility;
-Keywords=gaming;ryzen;cpu;gpu;nvidia;overclock;ccd;gamemode;linux;
-DESKTOP
+for size in 48 64 128 256 512; do
+    rm -f "$HOME/.local/share/icons/hicolor/${size}x${size}/apps/gaming-command-center.png"
+done
+rm -f "$HOME/.local/share/icons/hicolor/scalable/apps/gaming-command-center.png"
 
-# Fix the Exec path in the desktop file
-sudo sed -i "s|INSTALLDIR|$SCRIPT_DIR|" /usr/share/applications/com.gaming.commandcenter.desktop
-echo "  ✅ Desktop launcher installed"
-
-# 5. Update caches
-sudo update-desktop-database /usr/share/applications/ 2>/dev/null || true
-sudo gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
+# Hand the privileged file installation to gaming-cc-setup — the same script the
+# app's first-run setup screen runs via pkexec, so there's one source of truth
+# for what "installed" means (helpers, polkit, icon, desktop launcher).
+if sudo bash "$SCRIPT_DIR/gaming-cc-setup" "$SCRIPT_DIR" | grep -q SETUP_DONE; then
+    echo "  ✅ Helpers, polkit policy, icon and launcher installed"
+else
+    echo "  ❌ System setup failed (see the error above)."
+    exit 1
+fi
 
 echo
 echo "✅ Installation complete!"

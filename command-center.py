@@ -29,6 +29,59 @@ import steam_scanner
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+# ── System integration (first-run setup) ────────────────────────────────────
+# The app runs from source, but Game Mode, the /etc fixes and the app-menu
+# launcher need a few root-owned files in place. gaming-cc-setup installs them;
+# these helpers detect what's missing and drive it through pkexec, so a user who
+# just launched the app never has to open a terminal.
+CCD_HELPER_PATH = "/usr/local/bin/gaming-ccd-helper"
+ETC_HELPER_PATH = "/usr/local/bin/gaming-cc-etc-helper"
+POLKIT_PATH     = "/usr/share/polkit-1/actions/com.gaming.commandcenter.policy"
+DESKTOP_PATH    = "/usr/share/applications/com.gaming.commandcenter.desktop"
+
+
+def integration_status():
+    """Which pieces of system integration are present right now."""
+    return {
+        "helpers":  os.path.exists(CCD_HELPER_PATH) and os.path.exists(ETC_HELPER_PATH),
+        "polkit":   os.path.exists(POLKIT_PATH),
+        "launcher": os.path.exists(DESKTOP_PATH),
+    }
+
+
+def needs_setup():
+    """True if core integration is missing — the helpers + polkit rule that Game
+    Mode and the fixes actually need. A missing launcher alone is cosmetic and
+    does not force the setup screen."""
+    s = integration_status()
+    return not (s["helpers"] and s["polkit"])
+
+
+def run_privileged_setup():
+    """Run gaming-cc-setup as root via pkexec. Returns (ok, reason). Mirrors the
+    helper convention: success prints SETUP_DONE, failures print 'ERR: ...'."""
+    setup = os.path.join(BASE_DIR, "gaming-cc-setup")
+    if not os.path.exists(setup):
+        return False, "gaming-cc-setup not found next to the app"
+    # Invoke through bash by absolute path so a lost +x bit (e.g. a zip download)
+    # doesn't break it; pkexec needs an absolute program path anyway.
+    bash = shutil.which("bash") or "/bin/bash"
+    try:
+        r = subprocess.run(["pkexec", bash, setup, BASE_DIR],
+                           capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return False, "Setup timed out"
+    except OSError as e:
+        return False, f"Could not run setup: {e}"
+    if "SETUP_DONE" in (r.stdout or ""):
+        return True, ""
+    if r.returncode == 126:
+        return False, "Authorisation denied"
+    err = (r.stderr or "").strip().splitlines()
+    reason = err[-1].replace("ERR: ", "") if err else ""
+    return False, reason or f"Setup failed (exit {r.returncode})"
+
+
 # ============================================================
 # GPU Info (NVIDIA)
 # ============================================================
@@ -2757,6 +2810,121 @@ class CommandCenter(Adw.ApplicationWindow):
 
 
 # ============================================================
+# First-run setup dialog
+# ============================================================
+class SetupDialog(Adw.Window):
+    """One-click system integration. Shown on first launch when the helpers or
+    polkit rule are missing, so nobody has to run install.sh in a terminal —
+    a single button installs everything via pkexec."""
+
+    def __init__(self, parent):
+        super().__init__(modal=True, transient_for=parent)
+        self.set_title("Gaming Command Center — Setup")
+        self.set_default_size(520, 620)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        header = Adw.HeaderBar()
+        header.add_css_class("flat")
+        root.append(header)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        body.set_margin_start(34); body.set_margin_end(34)
+        body.set_margin_top(4); body.set_margin_bottom(30)
+        body.set_valign(Gtk.Align.CENTER); body.set_vexpand(True)
+        root.append(body)
+
+        logo_path = os.path.join(BASE_DIR, "GCC_logo.png")
+        if os.path.exists(logo_path):
+            logo = Gtk.Image.new_from_file(logo_path)
+            logo.set_pixel_size(84)
+            logo.add_css_class("logo-img")
+            logo.set_margin_bottom(2)
+            body.append(logo)
+
+        title = Gtk.Label()
+        title.set_markup("<span size='17000' weight='bold' color='#c0caf5'>Welcome 🎮</span>")
+        body.append(title)
+
+        sub = Gtk.Label()
+        sub.set_markup("<span color='#a9b1d6'>A few system components need a one-time "
+                       "setup so Game Mode\nand the fixes work without a terminal.</span>")
+        sub.set_justify(Gtk.Justification.CENTER); sub.set_wrap(True)
+        body.append(sub)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+        card.add_css_class("info-card"); card.set_margin_top(6)
+        for text in ("Helper programs (CCD parking, /etc fixes)",
+                     "Polkit rule (Game Mode without a password)",
+                     "App icon &amp; menu launcher"):
+            row = Gtk.Label()
+            row.set_markup(f"<span color='#9ece6a'>✓</span>  "
+                           f"<span color='#c0caf5'>{text}</span>")
+            row.set_halign(Gtk.Align.START)
+            card.append(row)
+        body.append(card)
+
+        note = Gtk.Label()
+        note.set_markup("<span size='9500' color='#565f89'>Asks for your admin password "
+                        "once. Reversible any time with ./uninstall.sh.</span>")
+        note.set_justify(Gtk.Justification.CENTER); note.set_wrap(True)
+        body.append(note)
+
+        self.status = Gtk.Label(); self.status.set_wrap(True)
+        self.status.set_justify(Gtk.Justification.CENTER)
+        body.append(self.status)
+        self.spinner = Gtk.Spinner()
+        body.append(self.spinner)
+
+        btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        btns.set_halign(Gtk.Align.CENTER); btns.set_margin_top(8)
+        self.skip_btn = Gtk.Button(label="Later")
+        self.skip_btn.add_css_class("flat")
+        self.skip_btn.connect("clicked", lambda *_: self.close())
+        self.setup_btn = Gtk.Button(label="Set up now")
+        self.setup_btn.add_css_class("btn-game-on")
+        self.setup_btn.connect("clicked", self.on_setup)
+        btns.append(self.skip_btn); btns.append(self.setup_btn)
+        body.append(btns)
+
+        self.set_content(root)
+
+    def on_setup(self, _btn):
+        self.setup_btn.set_sensitive(False)
+        self.skip_btn.set_sensitive(False)
+        self.spinner.start()
+        self.status.set_markup("<span color='#a9b1d6'>Setting up… watch for the "
+                               "password dialog.</span>")
+
+        def work():
+            ok, reason = run_privileged_setup()
+
+            def done():
+                self.spinner.stop()
+                if ok:
+                    self.status.set_markup("<span color='#9ece6a' weight='bold'>"
+                                           "✅ Done — everything's set up!</span>")
+                    self.setup_btn.set_visible(False)
+                    self.skip_btn.set_label("Close")
+                    self.skip_btn.set_sensitive(True)
+                    GLib.timeout_add(1400, self._close_now)
+                else:
+                    safe = GLib.markup_escape_text(reason)
+                    self.status.set_markup(f"<span color='#f7768e'>❌ {safe}</span>")
+                    self.setup_btn.set_label("Try again")
+                    self.setup_btn.set_sensitive(True)
+                    self.skip_btn.set_sensitive(True)
+                return False
+
+            GLib.idle_add(done)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _close_now(self):
+        self.close()
+        return False
+
+
+# ============================================================
 # Application
 # ============================================================
 class App(Adw.Application):
@@ -2766,6 +2934,9 @@ class App(Adw.Application):
     def do_activate(self):
         win = CommandCenter(self)
         win.present()
+        # First launch without system integration → offer the one-click setup.
+        if needs_setup():
+            SetupDialog(win).present()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+#
+# Gaming Command Center — privileged setup (system integration)
+# Copyright (C) 2026 Thomas — GPL-3.0-or-later (see LICENSE)
+#
+# The single source of truth for the root-only install steps. Two callers:
+#   • install.sh                        → sudo   gaming-cc-setup <source-dir>
+#   • the app's first-run setup screen  → pkexec gaming-cc-setup <source-dir>
+#
+# Runs as root, is idempotent, and takes the source directory as its one
+# argument so it works from any clone location. Prints SETUP_DONE on success
+# and 'ERR: <reason>' on failure — the app parses that, like the other helpers.
+#
+# Note: it deliberately does NOT touch anything under a user's home. User-local
+# cleanup (old ~/.local desktop entries/icons from early builds) is the caller's
+# job, done as the user, since root's $HOME is not theirs.
+
+set -euo pipefail
+
+fail() { echo "ERR: $*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || fail "must run as root (via sudo or pkexec)"
+
+SRC="${1:-}"
+[ -n "$SRC" ]                    || fail "usage: gaming-cc-setup <source-dir>"
+[ -d "$SRC" ]                    || fail "source directory not found: $SRC"
+[ -f "$SRC/command-center.py" ]  || fail "not a Gaming Command Center source dir: $SRC"
+
+# 1. Helper scripts → /usr/local/bin
+#    Two on purpose: runtime tweaks (no password) vs persistent /etc changes
+#    (authenticated). See com.gaming.commandcenter.policy.
+install -m 755 -o root -g root "$SRC/gaming-ccd-helper"    /usr/local/bin/gaming-ccd-helper    || fail "installing gaming-ccd-helper"
+install -m 755 -o root -g root "$SRC/gaming-cc-etc-helper" /usr/local/bin/gaming-cc-etc-helper || fail "installing gaming-cc-etc-helper"
+
+# 2. Polkit policy → must be world-readable (0644) or polkit ignores the action.
+install -m 644 -o root -g root "$SRC/com.gaming.commandcenter.policy" \
+    /usr/share/polkit-1/actions/com.gaming.commandcenter.policy || fail "installing polkit policy"
+
+# 3. App icon → system icon theme, every size plus scalable.
+for size in 48 64 128 256 512; do
+    mkdir -p "/usr/share/icons/hicolor/${size}x${size}/apps"
+    cp "$SRC/GCC_logo.png" "/usr/share/icons/hicolor/${size}x${size}/apps/gaming-command-center.png" || fail "installing ${size}px icon"
+done
+mkdir -p /usr/share/icons/hicolor/scalable/apps
+cp "$SRC/GCC_logo.png" /usr/share/icons/hicolor/scalable/apps/gaming-command-center.png || fail "installing scalable icon"
+gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
+
+# 4. Desktop launcher → the basename MUST equal the app-id (Adw application_id),
+#    or Wayland compositors can't map the window to it and the taskbar icon goes
+#    blank. StartupWMClass covers X11. Drop the old mismatched system name.
+mkdir -p /usr/share/applications
+rm -f /usr/share/applications/gaming-command-center.desktop
+cat > /usr/share/applications/com.gaming.commandcenter.desktop <<DESKTOP
+[Desktop Entry]
+Name=Gaming Command Center
+Comment=Linux gaming optimization — CPU CCD parking, GPU overclocking, system setup wizard
+Exec=python3 $SRC/command-center.py
+Icon=gaming-command-center
+Terminal=false
+Type=Application
+StartupWMClass=com.gaming.commandcenter
+Categories=Game;System;Utility;
+Keywords=gaming;ryzen;cpu;gpu;nvidia;overclock;ccd;gamemode;linux;
+DESKTOP
+update-desktop-database /usr/share/applications/ 2>/dev/null || true
+
+echo "SETUP_DONE"
