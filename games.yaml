@@ -57,6 +57,14 @@
 # anti-cheat the publisher disabled server-side) — no launch option or file can
 # fix it. This is the expectation-manager, so keep it accurate and sourced.
 # Omit the field entirely for normal games; the app then falls back to ProtonDB.
+#
+# NON-STEAM TITLES (optional)
+# ---------------------------
+# For famous games that aren't on Steam (Valorant, League, Fortnite), drop
+# `steam_id:` and set `platform:` instead — one of:
+#   riot | epic | battlenet | ea | rockstar | other
+# The app can't scan or install these, so it ALWAYS lists them (they only make
+# sense with playability: broken — a "you can't bring this to Linux" warning).
 # =====================================================================
 
 games:
@@ -3163,11 +3171,41 @@ games:
           source: "protondb.com/app/39210 (retrieved 2026-07-15)"
 
 
+  # ===================================================================
+  # Non-Steam titles (no steam_id) — famous games a Windows switcher asks
+  # about first. They can't be scanned/installed through us, but we still
+  # list them so the traffic light can say "this won't run on Linux" up
+  # front. Set `platform:` (not `steam_id:`); these are all anti-cheat
+  # blocks with no client-side workaround.
+  # ===================================================================
+  - name: "Valorant"
+    platform: riot
+    aliases: ["valorant"]
+    playability: broken
+    playability_reason: "Riot's Vanguard kernel anti-cheat requires Windows and does not run under Proton - Riot has explicitly ruled out Linux support. No workaround exists."
+    playability_source: "areweanticheatyet.com/game/valorant"
+
+  - name: "League of Legends"
+    platform: riot
+    aliases: ["lol", "league of legends", "league"]
+    playability: broken
+    playability_reason: "Riot added Vanguard kernel anti-cheat to LoL in 2024; it requires Windows and blocks Proton entirely. The old Wine/Lutris setups no longer work."
+    playability_source: "areweanticheatyet.com/game/league-of-legends"
+
+  - name: "Fortnite"
+    platform: epic
+    aliases: ["fortnite"]
+    playability: broken
+    playability_reason: "Epic's Easy Anti-Cheat supports Proton technically, but Epic has deliberately chosen NOT to enable it for Linux/Steam Deck. Tim Sweeney cited cheating concerns; no client-side fix."
+    playability_source: "areweanticheatyet.com/game/fortnite"
+
+
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
 # =====================================================================
 # - name: "Game Name"
-#   steam_id: 000000
+#   steam_id: 000000                # OR drop it and set `platform:` (non-Steam)
+#   # platform: riot                # riot|epic|battlenet|ea|rockstar|other
 #   aliases: ["short name"]          # optional, for non-Steam launchers
 #   playability: broken             # optional: playable | fixable | broken
 #   playability_reason: "Why it won't run (only needed for broken/fixable)"

@@ -1026,15 +1026,31 @@ class GamesPage(Gtk.Box):
             self._play_state[appid] = state
             rows.append((appid, disp_name, issues, game, hidden, aliases, state))
 
+        steam_count = len(rows)
+        with_fixes = sum(1 for r in rows if r[2])
+
+        # Non-Steam blockers (Valorant, League, Fortnite): we can't scan or
+        # install them, so we always surface them — the whole value is warning
+        # a switcher BEFORE they discover their main game won't come across.
+        non_steam = 0
+        for key, game in self.db.items():
+            if game.is_steam:
+                continue
+            state = self._classify(game, [])
+            self._play_state[key] = state
+            rows.append((key, game.name, [], game, 0, game.aliases, state))
+            non_steam += 1
+
         # Broken (won't-run) first so the expectation-setter is impossible to
         # miss, then games with fixes, then alphabetical.
         state_rank = {"broken": 0, "fix": 1, "play": 2, "unknown": 3}
         rows.sort(key=lambda r: (state_rank.get(r[6], 3), not r[2], r[1].lower()))
 
-        with_fixes = sum(1 for r in rows if r[2])
-        self.subtitle.set_text(
-            f"{len(rows)} installed games · {with_fixes} with known fixes · "
-            f"{len(self.db)} games in database")
+        subtitle = (f"{steam_count} installed games · {with_fixes} with known fixes · "
+                    f"{len(self.db)} games in database")
+        if non_steam:
+            subtitle += f" · {non_steam} non-Steam blockers listed"
+        self.subtitle.set_text(subtitle)
 
         if not rows:
             self.ready_banner.set_visible(False)
@@ -1044,7 +1060,10 @@ class GamesPage(Gtk.Box):
 
         self.ready_banner.set_visible(True)
         for appid, name, issues, game, hidden, aliases, state in rows:
-            card, reveal = self._build_game_card(appid, name, issues, game, hidden, state)
+            if game is not None and not game.is_steam:
+                card, reveal = self._build_non_steam_card(game, appid)
+            else:
+                card, reveal = self._build_game_card(appid, name, issues, game, hidden, state)
             card._appid = appid
             self.list_box.append(card)
             # Full-text search key: name + aliases + every visible fix's text, so
@@ -1053,6 +1072,8 @@ class GamesPage(Gtk.Box):
             for i in issues:
                 parts.append(f"{i.symptom} {i.cause} {i.fix.value} "
                              f"{i.fix.type} {getattr(i.fix, 'content', '')}")
+            if game is not None and game.playability_reason:
+                parts.append(game.playability_reason)
             self.game_cards.append((" ".join(parts).lower(), card, reveal))
         self._update_ready_banner()
         self._apply_search()
@@ -1237,6 +1258,60 @@ class GamesPage(Gtk.Box):
 
         self._load_tier_async(appid, tier_lbl)
         return card, reveal_fn
+
+    # Store labels for non-Steam titles — shown where the ProtonDB tier sits.
+    PLATFORM_LABELS = {"riot": "Riot", "epic": "Epic", "battlenet": "Battle.net",
+                       "ea": "EA App", "rockstar": "Rockstar", "other": "Non-Steam"}
+
+    def _build_non_steam_card(self, game, key):
+        """A won't-run card for a famous non-Steam title (Valorant/LoL/Fortnite).
+        No cover art, no Play button, no ProtonDB tier — just the honest verdict,
+        so a switcher sees it BEFORE hunting for a way to install it."""
+        label = self.PLATFORM_LABELS.get(game.platform, "Non-Steam")
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("v2-card"); card.add_css_class("v2-card-broken")
+
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=13)
+
+        # Initials tile — there's no Steam cover art for a non-Steam game. Seed
+        # the palette/CSS class off the name so the token is a safe integer.
+        seed = sum(map(ord, game.name))
+        fg, bg = self.TILE_PALETTE[seed % len(self.TILE_PALETTE)]
+        tile = Gtk.Label(label=self._initials(game.name))
+        tile.add_css_class("game-tile"); tile.set_size_request(44, 44)
+        tile.set_valign(Gtk.Align.CENTER)
+        css = Gtk.CssProvider()
+        load_css(css, f".ns-{seed} {{ background: {bg}; color: {fg}; }}")
+        tile.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        tile.add_css_class(f"ns-{seed}")
+        title_row.append(tile)
+
+        namecol = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        namecol.set_valign(Gtk.Align.CENTER)
+        nm = Gtk.Label(label=game.name); nm.add_css_class("game-title"); nm.set_xalign(0)
+        nm.set_wrap(False); nm.set_ellipsize(3)
+        namecol.append(nm)
+        meta = Gtk.Label(label=f"won't run on Linux — {label}, not on Steam")
+        meta.add_css_class("game-meta"); meta.set_xalign(0)
+        namecol.append(meta)
+        title_row.append(namecol)
+
+        spacer = Gtk.Box(); spacer.set_hexpand(True); title_row.append(spacer)
+
+        # Platform badge sits in the column the ProtonDB tier uses on Steam cards.
+        badge = Gtk.Label(label=label.upper()); badge.add_css_class("platform-badge")
+        badge.set_valign(Gtk.Align.CENTER)
+        badge.set_size_request(86, -1); badge.set_xalign(0.5)
+        title_row.append(badge)
+
+        pill = Gtk.Label(label="⛔ won't run"); pill.add_css_class("broken-pill")
+        pill.set_valign(Gtk.Align.CENTER)
+        pill.set_size_request(94, -1); pill.set_xalign(0.5)
+        title_row.append(pill)
+
+        card.append(title_row)
+        card.append(self._broken_row(game))
+        return card, None
 
     def _on_play(self, btn, appid):
         """Start the game via Steam's URL handler. Steam applies the launch
@@ -2175,6 +2250,11 @@ class CommandCenter(Adw.ApplicationWindow):
         .broken-reason { color: #f7a8b8; font-size: 12px; }
         .broken-source { color: #565f89; font-size: 10px; }
         .broken-source:hover { color: #7aa2f7; }
+        .platform-badge {
+            font-size: 9px; font-weight: 700; letter-spacing: 1px;
+            color: #f7768e; background: rgba(247,118,142,0.10);
+            padding: 3px 9px; border-radius: 5px;
+        }
 
         /* === Ready-to-Play traffic light === */
         .play-seg {
