@@ -32,7 +32,6 @@ class GPUInfo:
         self.gr_offset = self.mem_offset = 0
         self.powermizer = 0
         self.update()
-        self.update_oc()
 
     def update(self):
         """Live telemetry — cheap enough to poll every tick (~25 ms)."""
@@ -155,6 +154,16 @@ class CCDController:
         """Force a cpufreq governor (benchmark uses this). Password-free."""
         ok, _ = CCDController._run(["set-governor", name], "DONE_SETGOVERNOR", timeout=30)
         return ok
+
+    @staticmethod
+    def gpu_lock(min_mhz, max_mhz):
+        """Lock the NVIDIA graphics clock (Wayland-safe, via nvidia-smi)."""
+        return CCDController._run(["gpu-lock", str(min_mhz), str(max_mhz)],
+                                  "DONE_GPULOCK", timeout=15)
+
+    @staticmethod
+    def gpu_unlock():
+        return CCDController._run(["gpu-unlock"], "DONE_GPUUNLOCK", timeout=15)
 
     @staticmethod
     def etc_helper(action, expect, success_msg):
@@ -872,8 +881,6 @@ class CommandCenter(Adw.ApplicationWindow):
         self.benching = False
         self.best_ccd = None
         self._stop_monitor = threading.Event()
-        self._oc_touched = False   # user is editing the OC controls
-        self._syncing_oc = False   # we are writing them ourselves
         from topology import load_config
         try:
             self._monitor_interval = float(load_config().get("monitor_interval", 1.5))
@@ -2259,89 +2266,9 @@ class CommandCenter(Adw.ApplicationWindow):
             gpu_card.append(wrap)
             self.gpu_bars[key] = {"val": val, "bar": bar}
 
-        # Offset display tiles
-        off = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        off.set_homogeneous(True); off.set_margin_top(2)
-        for key, label in [("gr", "GPU OFFSET"), ("mem", "MEM OFFSET")]:
-            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-            t.add_css_class("offset-tile")
-            l = Gtk.Label(label=label); l.add_css_class("offset-label"); l.set_xalign(0)
-            t.append(l)
-            v = Gtk.Label(label="+0 MHz"); v.add_css_class("offset-value"); v.set_xalign(0)
-            t.append(v)
-            off.append(t)
-            self.gpu_bars[f"off_{key}"] = v
-        gpu_card.append(off)
-
-        # --- Overclocking controls (kept, functional) ---
-        oc_title = Gtk.Label(label="OVERCLOCKING"); oc_title.add_css_class("card-title")
-        oc_title.set_xalign(0); oc_title.set_margin_top(4)
-        gpu_card.append(oc_title)
-
-        gr_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gr_lbl = Gtk.Label(label="Core")
-        gr_lbl.set_markup("<span color='#c0caf5'>Core</span>")
-        gr_row.append(gr_lbl)
-        self.gr_slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -500, 500, 5)
-        self.gr_slider.set_hexpand(True)
-        self.gr_slider.set_value(0)
-        self.gr_slider.connect("value-changed", self.on_gr_slider)
-        scroll_ctrl_gr = Gtk.EventControllerScroll()
-        scroll_ctrl_gr.set_flags(Gtk.EventControllerScrollFlags.VERTICAL)
-        scroll_ctrl_gr.connect("scroll", lambda c, dx, dy: True)
-        self.gr_slider.add_controller(scroll_ctrl_gr)
-        gr_row.append(self.gr_slider)
-        self.gr_value_lbl = Gtk.Label(label="+0 MHz")
-        self.gr_value_lbl.set_xalign(1)
-        self.gr_value_lbl.add_css_class("stat-label")
-        gr_row.append(self.gr_value_lbl)
-        gpu_card.append(gr_row)
-
-        # VRAM offset slider
-        mem_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        mem_row.set_margin_top(4)
-        mem_lbl = Gtk.Label(label="VRAM")
-        mem_lbl.set_markup("<span color='#c0caf5'>VRAM</span>")
-        mem_row.append(mem_lbl)
-        self.mem_slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -500, 500, 5)
-        self.mem_slider.set_hexpand(True)
-        self.mem_slider.set_value(0)
-        self.mem_slider.connect("value-changed", self.on_mem_slider)
-        scroll_ctrl_mem = Gtk.EventControllerScroll()
-        scroll_ctrl_mem.set_flags(Gtk.EventControllerScrollFlags.VERTICAL)
-        scroll_ctrl_mem.connect("scroll", lambda c, dx, dy: True)
-        self.mem_slider.add_controller(scroll_ctrl_mem)
-        mem_row.append(self.mem_slider)
-        self.mem_value_lbl = Gtk.Label(label="+0 MHz")
-        self.mem_value_lbl.set_xalign(1)
-        self.mem_value_lbl.add_css_class("stat-label")
-        mem_row.append(self.mem_value_lbl)
-        gpu_card.append(mem_row)
-
-        # PowerMizer dropdown
-        pm_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        pm_row.set_margin_top(6)
-        pm_lbl = Gtk.Label(label="PowerMizer")
-        pm_lbl.set_markup("<span color='#c0caf5'>PowerMizer</span>")
-        pm_row.append(pm_lbl)
-        self.pm_combo = Gtk.DropDown.new_from_strings(
-            ["Adaptive", "Max Performance", "Auto"])
-        self.pm_combo.set_selected(0)
-        pm_row.append(self.pm_combo)
-        gpu_card.append(pm_row)
-
-        # Apply OC button
-        self.oc_btn = Gtk.Button(label="Apply OC")
-        self.oc_btn.set_margin_top(8)
-        self.oc_btn.add_css_class("btn-apply")
-        self.oc_btn.connect("clicked", self.on_apply_oc)
-        gpu_card.append(self.oc_btn)
-
-        self.oc_status_lbl = Gtk.Label(label="")
-        self.oc_status_lbl.set_margin_top(4)
-        self.oc_status_lbl.set_halign(Gtk.Align.START)
-        gpu_card.append(self.oc_status_lbl)
-
+        # Overclocking / clock-lock controls will live in a dedicated tab later.
+        # This dashboard panel is monitoring-only. The backend (CCDController
+        # .gpu_lock / .gpu_unlock via the helper) is already in place for it.
         return gpu_card
 
     # ============================================================
@@ -2539,20 +2466,6 @@ class CommandCenter(Adw.ApplicationWindow):
             self._frac(self.gpu.clock_gr, self.gpu.max_clock_gr or 2000))
         self.gpu_bars["power"]["val"].set_label(f"{self.gpu.power_draw:.0f} W")
         self.gpu_bars["power"]["bar"].set_value(self._frac(self.gpu.power_draw, self.gpu.power_limit or 300))
-        self.gpu_bars["off_gr"].set_label(f"{self.gpu.gr_offset:+d} MHz")
-        self.gpu_bars["off_mem"].set_label(f"{self.gpu.mem_offset:+d} MHz")
-
-        # OC — only mirror the driver's values while the user is not editing,
-        # otherwise the next tick would yank the slider back mid-drag.
-        if not self._oc_touched:
-            self._syncing_oc = True
-            self.gr_slider.set_value(self.gpu.gr_offset)
-            self.mem_slider.set_value(self.gpu.mem_offset)
-            self.gr_value_lbl.set_label(f"{self.gpu.gr_offset:+d} MHz")
-            self.mem_value_lbl.set_label(f"{self.gpu.mem_offset:+d} MHz")
-            self.pm_combo.set_selected(self.gpu.powermizer)
-            self._syncing_oc = False
-
         return False
 
     # ============================================================
@@ -2627,55 +2540,6 @@ class CommandCenter(Adw.ApplicationWindow):
             GLib.idle_add(update_ui)
 
         threading.Thread(target=run_in_thread, daemon=True).start()
-
-    # ============================================================
-    # GPU Overclocking
-    # ============================================================
-    def on_gr_slider(self, slider):
-        v = int(slider.get_value())
-        self.gr_value_lbl.set_label(f"{v:+d} MHz")
-        if not self._syncing_oc:
-            self._oc_touched = True
-
-    def on_mem_slider(self, slider):
-        v = int(slider.get_value())
-        self.mem_value_lbl.set_label(f"{v:+d} MHz")
-        if not self._syncing_oc:
-            self._oc_touched = True
-
-    def on_apply_oc(self, btn):
-        gr_off = int(self.gr_slider.get_value())
-        mem_off = int(self.mem_slider.get_value())
-        pm = self.pm_combo.get_selected()
-        btn.set_sensitive(False)
-
-        def apply_in_thread():
-            ok, err = True, ""
-            if gr_off != self.gpu.gr_offset:
-                ok, err = GPUController.set_gr_offset(gr_off)
-            if ok and mem_off != self.gpu.mem_offset:
-                ok, err = GPUController.set_mem_offset(mem_off)
-            if ok:
-                ok, err = GPUController.set_powermizer(pm)
-            self.gpu.update_oc()  # read back what the driver actually accepted
-
-            def update_ui():
-                btn.set_sensitive(True)
-                self._oc_touched = False  # let the monitor mirror the driver again
-                if ok:
-                    self.oc_status_lbl.set_markup(
-                        f"<span color='#9ece6a'>Applied — Core {self.gpu.gr_offset:+d} MHz | "
-                        f"VRAM {self.gpu.mem_offset:+d} MHz | "
-                        f"PM: {['Adaptive','Max Perf','Auto'][pm]}</span>")
-                else:
-                    self.oc_status_lbl.set_markup(
-                        f"<span color='#f7768e'>{GLib.markup_escape_text(err)}</span>")
-                self.refresh()
-                return False
-
-            GLib.idle_add(update_ui)
-
-        threading.Thread(target=apply_in_thread, daemon=True).start()
 
     # ============================================================
     # CCD Benchmark — per-core sustained boost clock

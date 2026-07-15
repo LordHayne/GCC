@@ -17,6 +17,8 @@
 #   gaming-ccd-helper unpark-all
 #   gaming-ccd-helper governor | audio | sata
 #   gaming-ccd-helper set-governor <name>   (benchmark uses this, then restores)
+#   gaming-ccd-helper gpu-lock <min> <max>  (nvidia-smi clock lock; Wayland-safe)
+#   gaming-ccd-helper gpu-unlock
 #
 # Everything here is a runtime sysfs change: it is undone by a reboot, so the
 # polkit action runs without a password. Persistent /etc edits are deliberately
@@ -146,9 +148,32 @@ case "${1:-}" in
         echo "DONE_SATA"
         ;;
 
+    gpu-lock)
+        # Lock the NVIDIA graphics clock range. Works on Wayland (nvidia-smi is
+        # display-independent), unlike nvidia-settings OC. Cannot exceed the
+        # card's factory max — this pins the clock, it does not overclock.
+        [ $# -eq 3 ] || die "usage: gpu-lock <minMHz> <maxMHz>"
+        [[ "$2" =~ ^[0-9]+$ && "$3" =~ ^[0-9]+$ ]] || die "clocks must be numbers"
+        [ "$2" -le "$3" ] || die "min must be <= max"
+        [ "$3" -le 4000 ] || die "max clock $3 out of range"
+        command -v nvidia-smi >/dev/null || die "nvidia-smi not installed"
+        out=$(nvidia-smi -lgc "$2,$3" 2>&1)
+        if echo "$out" | grep -qi "error\|not permitted\|failed"; then
+            die "nvidia-smi: $(echo "$out" | tr '\n' ' ')"
+        fi
+        echo "DONE_GPULOCK"
+        ;;
+
+    gpu-unlock)
+        command -v nvidia-smi >/dev/null || die "nvidia-smi not installed"
+        nvidia-smi -rgc >/dev/null 2>&1 || die "could not reset gpu clocks"
+        echo "DONE_GPUUNLOCK"
+        ;;
+
     *)
         echo "Usage: gaming-ccd-helper park <cpus> | unpark <cpus> | unpark-all |"
-        echo "       governor | set-governor <name> | audio | sata"
+        echo "       governor | set-governor <name> | audio | sata |"
+        echo "       gpu-lock <min> <max> | gpu-unlock"
         echo "(persistent /etc changes live in gaming-cc-etc-helper)"
         exit 1
         ;;
