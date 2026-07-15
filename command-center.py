@@ -1677,13 +1677,13 @@ class CommandCenter(Adw.ApplicationWindow):
         self.ccd_cards = {}
         self.rebuild_ccd_cards()
         left.append(topo_card)
-        left.append(self._build_overview_card())
         cols.append(left)
 
-        # Right column: GPU panel + overclocking
+        # Right column: GPU monitoring (compact) + overview below it
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         right.set_size_request(360, -1)
         right.append(self._build_gpu_panel())
+        right.append(self._build_overview_card())
         cols.append(right)
 
         outer.append(cols)
