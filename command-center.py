@@ -1203,6 +1203,16 @@ class CommandCenter(Adw.ApplicationWindow):
         .summary-warn { background: rgba(224,175,104,0.08); border: 1px solid rgba(224,175,104,0.18); color: #e0af68; }
         .summary-ok { background: rgba(158,206,106,0.06); border: 1px solid rgba(158,206,106,0.15); color: #9ece6a; }
 
+        /* Settings grouped cards */
+        .settings-group {
+            background: #16161e; border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .settings-row { padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+        .settings-row:last-child { border-bottom: none; }
+        .settings-name { color: #c0caf5; font-weight: 700; font-size: 13px; }
+        .settings-desc { color: #565f89; font-size: 10px; }
+
         /* === Sliders === */
         scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
         scale highlight { background: #7aa2f7; border-radius: 3px; }
@@ -2007,48 +2017,37 @@ class CommandCenter(Adw.ApplicationWindow):
         cfg = load_config()
 
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        # Title now lives in the shared header.
-
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
-        clamp = Adw.Clamp()
-        clamp.set_maximum_size(640)
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_start(16); box.set_margin_end(16)
-        box.set_margin_top(14); box.set_margin_bottom(20)
+        box.set_margin_start(24); box.set_margin_end(24)
+        box.set_margin_top(8); box.set_margin_bottom(20)
 
-        # --- Monitoring interval ---
-        box.append(self._section_header("Monitoring"))
+        # --- MONITORING ---
+        card = self._settings_group(box, "MONITORING")
         intervals = [("Fast (1 s)", 1.0), ("Normal (1.5 s)", 1.5),
                      ("Relaxed (3 s)", 3.0), ("Battery (5 s)", 5.0)]
         cur = float(cfg.get("monitor_interval", 1.5))
         idx = min(range(len(intervals)), key=lambda i: abs(intervals[i][1] - cur))
-        row = self._settings_row("Refresh rate",
-                                 "How often live stats update. Slower = less CPU use.")
         combo = Gtk.DropDown.new_from_strings([n for n, _ in intervals])
-        combo.set_selected(idx)
-        combo.set_valign(Gtk.Align.CENTER)
+        combo.set_selected(idx); combo.set_valign(Gtk.Align.CENTER)
         combo.connect("notify::selected", lambda d, _p:
                       self._on_interval_changed(intervals[d.get_selected()][1]))
-        row.append(combo)
-        box.append(row)
+        self._settings_row(card, "Refresh rate",
+                           "How often live stats update. Slower = less CPU use.", combo)
 
-        # --- Games / fixes ---
-        box.append(self._section_header("Game fixes"))
-        row = self._settings_row("Only show verified fixes",
-                                 "Hide untested community suggestions on the Games page.")
-        sw = Gtk.Switch()
-        sw.set_valign(Gtk.Align.CENTER)
+        # --- GAME FIXES ---
+        card = self._settings_group(box, "GAME FIXES")
+        sw = Gtk.Switch(); sw.set_valign(Gtk.Align.CENTER)
         sw.set_active(bool(cfg.get("only_verified", False)))
         sw.connect("notify::active", lambda s, _p: self._on_only_verified(s.get_active()))
-        row.append(sw)
-        box.append(row)
+        self._settings_row(card, "Only show verified fixes",
+                           "Hide untested community suggestions on the Games page.", sw)
 
-        # --- CCD choice for Game Mode ---
+        # --- GAME MODE ---
         if self.topo.ccd_count() > 1:
-            box.append(self._section_header("Game Mode"))
-            row = self._settings_row("CCD to keep",
-                                     "Which CCD stays active. Auto uses the benchmark winner.")
+            card = self._settings_group(box, "GAME MODE")
             ids = self.topo.get_all_ccd_ids()
             labels = ["Auto (benchmark)"] + [f"CCD{c} ({self.topo.core_count(c)} cores)"
                                              for c in ids]
@@ -2059,46 +2058,58 @@ class CommandCenter(Adw.ApplicationWindow):
             ccd_combo.connect("notify::selected", lambda d, _p:
                               self._on_keep_ccd(None if d.get_selected() == 0
                                                 else ids[d.get_selected() - 1]))
-            row.append(ccd_combo)
-            box.append(row)
+            self._settings_row(card, "CCD to keep",
+                               "Which CCD stays active. Auto uses the benchmark winner.",
+                               ccd_combo)
 
-        # --- About ---
-        box.append(self._section_header("About"))
+        # --- ABOUT ---
+        card = self._settings_group(box, "ABOUT")
         about = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        about.add_css_class("empty-card")
+        about.set_margin_start(16); about.set_margin_end(16)
+        about.set_margin_top(13); about.set_margin_bottom(13)
         name = Gtk.Label(); name.set_xalign(0)
-        name.set_markup(f"<span weight='bold' color='#c0caf5' size='14000'>Gaming Command Center</span>")
+        name.set_markup("<span weight='bold' color='#c0caf5' size='14000'>Gaming Command Center</span>")
         about.append(name)
         ver = Gtk.Label(label=f"Version {self.APP_VERSION} \u00b7 GPL-3.0-or-later")
         ver.add_css_class("info-card-sub"); ver.set_xalign(0)
         about.append(ver)
         links = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         links.set_margin_top(6)
-        gh = Gtk.LinkButton.new_with_label(self.GITHUB_URL, "GitHub")
-        bug = Gtk.LinkButton.new_with_label(self.GITHUB_URL + "/issues", "Report a bug")
-        links.append(gh); links.append(bug)
+        links.append(Gtk.LinkButton.new_with_label(self.GITHUB_URL, "GitHub"))
+        links.append(Gtk.LinkButton.new_with_label(self.GITHUB_URL + "/issues", "Report a bug"))
         about.append(links)
-        box.append(about)
+        card.append(about)
 
-        clamp.set_child(box)
-        scroll.set_child(clamp)
+        scroll.set_child(box)
         page.append(scroll)
         return page
 
-    def _settings_row(self, title, subtitle):
-        """A labelled settings row; caller appends the control widget."""
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        row.add_css_class("info-card")
-        row.set_margin_top(4)
-        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    def _settings_group(self, box, title):
+        """Append a section header + an empty group card; return the card so the
+        caller can add rows to it (v2 grouped-settings look)."""
+        hdr = Gtk.Label(label=title); hdr.add_css_class("card-title"); hdr.set_xalign(0)
+        hdr.set_margin_top(6); hdr.set_margin_bottom(2)
+        box.append(hdr)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.add_css_class("settings-group")
+        box.append(card)
+        return card
+
+    def _settings_row(self, card, title, subtitle, control):
+        """One row inside a group card: name + desc left, control right."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        row.add_css_class("settings-row")
+        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         txt.set_hexpand(True); txt.set_valign(Gtk.Align.CENTER)
-        t = Gtk.Label(label=title); t.add_css_class("info-card-title"); t.set_xalign(0)
+        t = Gtk.Label(label=title); t.add_css_class("settings-name"); t.set_xalign(0)
         txt.append(t)
-        s = Gtk.Label(label=subtitle); s.add_css_class("info-card-sub"); s.set_xalign(0)
+        s = Gtk.Label(label=subtitle); s.add_css_class("settings-desc"); s.set_xalign(0)
         s.set_wrap(True)
         txt.append(s)
         row.append(txt)
-        return row
+        control.set_valign(Gtk.Align.CENTER)
+        row.append(control)
+        card.append(row)
 
     def _on_interval_changed(self, seconds):
         self._monitor_interval = seconds
