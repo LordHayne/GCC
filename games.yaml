@@ -2411,6 +2411,365 @@ games:
           source: "protondb.com/app/3764200 (retrieved 2026-07-15)"
 
 
+  - name: "Black Myth: Wukong"
+    steam_id: 2358720
+    aliases: ["black myth wukong", "wukong"]
+    issues:
+      - symptom: "Game fails to launch (black screen / crash on boot) with default/older Proton"
+        cause: "UE5 + Denuvo DRM title needs a recent Proton runtime; older stable Proton builds fail to start it. It is single-player with Denuvo anti-tamper DRM only (no anti-cheat), so it runs on Linux once a modern runtime is used."
+        fix:
+          type: info
+          value: "Set the compatibility tool to Proton Experimental or GE-Proton (latest) via Properties -> Compatibility. This is the most common launch blocker and needs no shell/launch tricks."
+          verified: false
+          source: "protondb.com/app/2358720 (retrieved 2026-07-15)"
+
+      - symptom: "UE5 traversal stutter and VRAM exhaustion / texture pop-in on 8GB cards"
+        cause: "Unreal Engine 5 shader-comp and streaming stutter; at higher presets the game exceeds 8GB VRAM. Enabling NVAPI lets DLSS run under Proton, cutting VRAM pressure; GameMode pins the performance profile."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "PROTON_ENABLE_NVAPI=1 gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/2358720 (retrieved 2026-07-15)"
+
+
+  - name: "Monster Hunter Wilds"
+    steam_id: 2246340
+    aliases: ["mh wilds", "monster hunter wilds"]
+    issues:
+      - symptom: "Game fails to launch / crashes on startup after a Capcom title update on Linux & Steam Deck"
+        cause: "A game update broke compatibility with stable Proton; Valve shipped a Proton Hotfix / newer Proton to work around it."
+        fix:
+          type: info
+          value: "Set the title to Proton Hotfix (or Proton Experimental / GE-Proton latest) in Properties -> Compatibility. Note: Denuvo counts each Proton version change or launch-option edit as a new machine activation (limit ~5 per 24h), so settle on one Proton build before playing."
+          verified: false
+          source: "gamingonlinux.com/2025/04/proton-hotfix-updated-to-fix-monster-hunter-wilds (retrieved 2026-07-15)"
+
+      - symptom: "Heavy VRAM/shader-streaming stutter and frame-time spikes on 8GB GPUs (RE Engine texture streaming)"
+        cause: "RE Engine streams textures via GPU decompression; on 8GB cards this overruns VRAM and causes hitching, and host-visible VRAM uploads add stalls on NVIDIA. Disabling HVV uploads removes the stalls."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "VKD3D_CONFIG=no_upload_hvv %command%"
+          verified: false
+          source: "nerdburglars.net/gameguides/monster-hunter-wilds-shader-recompilation-linux (retrieved 2026-07-15)"
+
+      - symptom: "Out-of-VRAM crashes or persistent texture stutter on 8GB cards even after tweaks"
+        cause: "Default/High texture pool exceeds an 8GB budget; the biggest single lever is in-game texture quality, not a launch flag."
+        fix:
+          type: info
+          value: "In-game set Texture Quality to Medium (or lower) and cap the texture memory setting to your VRAM; let shaders finish compiling at camp before moving. This is the primary fix for 8GB GPUs."
+          verified: false
+          source: "tier1settings.com/monster-hunter-wilds-stuttering-fix (retrieved 2026-07-15)"
+
+
+  - name: "Destiny 2"
+    steam_id: 1085660
+    aliases: ["destiny 2", "d2"]
+    issues:
+      - symptom: "Destiny 2 does not launch on Linux/Proton and running it risks a permanent account ban"
+        cause: "Destiny 2 uses BattlEye anti-cheat, and Bungie has explicitly disabled Linux/Proton support. Bungie treats playing via Proton/Steam Deck as bannable circumvention, and accounts have been banned for it."
+        fix:
+          type: info
+          value: "Do NOT attempt to run Destiny 2 on Linux. Bungie bans accounts that launch it through Proton/Steam Deck. There is no working or safe method - it is officially unsupported and denied. Play it on Windows only."
+          verified: false
+          source: "areweanticheatyet.com/game/destiny-2 (retrieved 2026-07-15)"
+
+
+  - name: "New World: Aeternum"
+    steam_id: 1063730
+    aliases: ["new world", "new world aeternum"]
+    issues:
+      - symptom: "Game does not launch, or exits at the Easy Anti-Cheat splash / login on older Proton versions"
+        cause: "New World's EAC only passes with the Proton EasyAntiCheat Runtime installed and a recent Proton build; missing runtime or old Proton is rejected by the anti-cheat."
+        fix:
+          type: info
+          value: "Install 'Proton EasyAntiCheat Runtime' (Library -> Tools) and set the game to Proton Experimental or Proton 9.0+. EAC support is officially enabled for Linux/Proton, so it then launches without further workarounds."
+          verified: false
+          source: "areweanticheatyet.com/game/new-world (retrieved 2026-07-15)"
+
+      - symptom: "Missing DLSS / NVIDIA features and rougher frametimes than expected on NVIDIA GPUs"
+        cause: "Proton does not expose the NVIDIA NVAPI layer by default, so the game cannot use NVIDIA-specific paths."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "PROTON_ENABLE_NVAPI=1 %command%"
+          verified: false
+          source: "protondb.com/app/1063730 (retrieved 2026-07-15)"
+
+
+  - name: "Lost Ark"
+    steam_id: 1599340
+    aliases: ["lost ark"]
+    issues:
+      - symptom: "Game fails to launch or crashes at the Easy Anti-Cheat bootstrap on default/older Proton, even though anti-cheat is now allowed on Linux"
+        cause: "Smilegate/Amazon enabled EAC for Linux (July 2025), but the EAC runtime only initializes correctly on a recent Proton build; older or default Proton versions crash before reaching the game."
+        fix:
+          type: info
+          value: "Enable Steam Play (Force compatibility) and select Proton 10 (beta) or GE-Proton 10.9 or later, which AreWeAntiCheatYet lists as the recommended runtimes for EAC. No special launch options are required to get it running."
+          verified: false
+          source: "areweanticheatyet.com/game/lost-ark (retrieved 2026-07-15)"
+
+      - symptom: "Playable but frame pacing / CPU-bound stutter in busy areas (raids, cities)"
+        cause: "Lost Ark is heavily CPU-bound in crowded scenes; without a performance governor wrapper Proton can leave the CPU in a lower power/scheduling state, hurting frametimes."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/1599340 (retrieved 2026-07-15)"
+
+
+  - name: "Path of Exile"
+    steam_id: 238960
+    aliases: ["poe", "path of exile"]
+    issues:
+      - symptom: "Game freezes or crashes on startup when the Vulkan renderer is active under Proton; never reaches character select"
+        cause: "PoE's Vulkan backend is unstable under Proton/DXVK; the DirectX 12 renderer is the most reliable path on Linux."
+        fix:
+          type: info
+          value: "In-game Options -> Graphics -> Renderer, set to DirectX 12 (or DirectX 11 if DX12 still stalls), then restart. Renderer is not a Steam launch flag, so change it in the client's graphics options / production_Config.ini."
+          verified: false
+          source: "pathofexile.com/forum/view-thread/3596502 (retrieved 2026-07-15)"
+
+      - symptom: "Recurring shader-compilation stutter and hitching in mob-dense areas, worsening the longer a session runs"
+        cause: "DXVK's shader disk cache gets pruned between/within sessions on NVIDIA, forcing constant recompilation; keeping the cache and enabling NVAPI smooths frame delivery."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "PROTON_ENABLE_NVAPI=1 __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1 %command%"
+          verified: false
+          source: "protondb.com/app/238960 (retrieved 2026-07-15)"
+
+
+  - name: "Last Epoch"
+    steam_id: 899770
+    aliases: ["last epoch"]
+    issues:
+      - symptom: "Brief frame hitches / micro-freezes the first time new spells, enemies, or zones appear (Unity shader-compilation stutter)"
+        cause: "DXVK compiles Direct3D shaders on-demand on first use; Last Epoch's Unity engine streams many new shaders during play, so each new effect causes a momentary stall until cached (DXVK_ASYNC needs Proton-GE / async DXVK)."
+        fix:
+          type: launch_option
+          value: "DXVK_ASYNC=1 %command%"
+          verified: false
+          source: "protondb.com/app/899770 (retrieved 2026-07-15)"
+
+      - symptom: "Recurring stutter and short freezes during combat-heavy scenes on NVIDIA GPUs"
+        cause: "On-demand shader compilation with esync/fsync leads to uneven frametimes; enabling async compilation plus esync/fsync smooths delivery on NVIDIA."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "DXVK_ASYNC=1 PROTON_NO_ESYNC=0 PROTON_NO_FSYNC=0 %command%"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3650925771 (retrieved 2026-07-15)"
+
+
+  - name: "Halo Infinite"
+    steam_id: 1240440
+    aliases: ["halo infinite", "halo"]
+    issues:
+      - symptom: "Multiplayer or campaign won't launch, or you installed via the Xbox / Microsoft Store app"
+        cause: "Only the Steam release runs under Proton; the Xbox App / Microsoft Store build does not. The Steam version's Easy Anti-Cheat has Linux (Proton) support enabled by the developer, so both campaign and multiplayer work."
+        fix:
+          type: info
+          value: "Use the Steam version. Easy Anti-Cheat is enabled for Linux, so campaign and casual multiplayer launch on a stock kernel with recent Proton. The Xbox App / MS Store version will not work."
+          verified: false
+          source: "areweanticheatyet.com/game/halo-infinite (retrieved 2026-07-15)"
+
+      - symptom: "Anti-cheat kicks or false-positive bans in ranked, or crashes on a custom kernel"
+        cause: "EAC's Proton-compatible mode is sensitive to non-standard kernels (Zen/hardened/heavily patched); ranked can flag false positives. CachyOS ships a non-stock kernel."
+        fix:
+          type: info
+          value: "Campaign and casual MP are reliable; for ranked, a stock distro kernel gives the best EAC compatibility. Custom kernels raise the chance of anti-cheat false positives."
+          verified: false
+          source: "protondb.com/app/1240440 (retrieved 2026-07-15)"
+
+      - symptom: "Campaign intro/cutscene videos are black or missing, or campaign won't start on older Proton"
+        cause: "Campaign video playback and startup needed a newer Proton; older builds showed black cutscenes."
+        fix:
+          type: info
+          value: "Use current Proton (9.0-3 or newer, or Proton-GE). This resolves the campaign cutscene/black-video issue that older Proton had."
+          verified: false
+          source: "gamingonlinux.com/2022/07/ge-proton-7-27-halo-infinite-campaign-videos (retrieved 2026-07-15)"
+
+
+  - name: "Battlefield 2042"
+    steam_id: 1517290
+    aliases: ["bf2042", "battlefield 2042"]
+    issues:
+      - symptom: "Game launches but immediately closes / kicks to a launcher error, or online multiplayer cannot connect on Linux/Proton"
+        cause: "Battlefield 2042 uses EA's kernel-level anti-cheat (EA AntiCheat / Javelin), which does not support Linux or Proton. The developer has explicitly denied Linux/Steam Deck support, so the game is unplayable online on this platform."
+        fix:
+          type: info
+          value: "Not playable on Linux/Proton. EA AntiCheat is marked Denied on areweanticheatyet.com and the game is Borked on ProtonDB. There is no launch option or workaround; EA has said Javelin Linux support is only a future goal. Wait for official support."
+          verified: false
+          source: "areweanticheatyet.com/game/battlefield-2042 (retrieved 2026-07-15)"
+
+
+  - name: "Fall Guys"
+    steam_id: 1097150
+    aliases: ["fall guys"]
+    issues:
+      - symptom: "Fall Guys reaches the menu but fails to enter matches on Linux, showing 'Anti-cheat is not initialized' (EAC not initialized)"
+        cause: "Fall Guys uses Easy Anti-Cheat. After going F2P/Epic the EAC Linux runtime is not reliably shipped/enabled by the developer, so Proton cannot initialize it. A Feb 2025 update removed the easyanticheat.so runtime again, breaking online play. This is a publisher-side switch."
+        fix:
+          type: info
+          value: "Online play is blocked by Easy Anti-Cheat, which the developer has not kept enabled for Proton/Linux. There is no client-side workaround (no launch option or file fixes it). Status is unstable and controlled by Epic/Mediatonic - treat as effectively denied."
+          verified: false
+          source: "areweanticheatyet.com/game/fall-guys (retrieved 2026-07-15)"
+
+
+  - name: "Among Us"
+    steam_id: 945360
+    aliases: ["among us"]
+    issues:
+      - symptom: "Game launches via Proton but hangs at 'connecting' / can't reach any lobby or server"
+        cause: "Proton dislikes the default auto region-picking; the online connection fails until a server region is chosen manually."
+        fix:
+          type: info
+          value: "No anti-cheat and works via Proton. If it won't connect, open the game's online screen and manually pick a server region (e.g. North America / Europe / Asia) instead of leaving it on auto."
+          verified: false
+          source: "gamingonlinux.com/2021/08/among-us-not-connecting-on-linux-proton-fix (retrieved 2026-07-15)"
+
+
+  - name: "Lethal Company"
+    steam_id: 1966720
+    aliases: ["lethal company"]
+    issues:
+      - symptom: "Game freezes on the Unity splash logo when launched in exclusive fullscreen; only proceeds if another window is kept on top of it"
+        cause: "Proton focus/rendering bug with this Unity title in exclusive-fullscreen mode. Rare and version-dependent, but the most-cited launch blocker."
+        fix:
+          type: info
+          value: "In-game Video settings, set display to Borderless/Windowed (not exclusive Fullscreen) to avoid the splash-logo freeze. No launch option needed. No anti-cheat; co-op works out of the box."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/7351 (retrieved 2026-07-15)"
+
+      - symptom: "Occasional Unity frame-time stutter / traversal hitching during play"
+        cause: "Unity shader compilation and CPU scheduling; Feral GameMode smooths frame times and pins the CPU governor to performance."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/1966720 (retrieved 2026-07-15)"
+
+
+  - name: "The Forest"
+    steam_id: 242760
+    aliases: ["the forest"]
+    issues:
+      - symptom: "Game fails to start (black screen / no window / instant crash) or heavy stutter on machines with many CPU threads"
+        cause: "The Forest's Unity build has an SMT/high-core-count bug under Proton: with all logical cores exposed it can hang at launch or stutter badly. Capping the CPU topology fixes both the launch stall and the framerate (directly relevant to a 12-core/24-thread 3900X)."
+        fix:
+          type: launch_option
+          value: "WINE_CPU_TOPOLOGY=8:0,1,2,3,4,5,6,7 %command%"
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/5927 (retrieved 2026-07-15)"
+
+      - symptom: "Co-op multiplayer: will it work, and does anti-cheat block it?"
+        cause: "Single-player has no anti-cheat and runs fine, but The Forest ships EasyAntiCheat for multiplayer. EAC now has an official Proton runtime and co-op can work, but reports remain mixed and MP can lag around large built structures."
+        fix:
+          type: info
+          value: "Single-player just works. For co-op, use a recent Proton so the EAC runtime loads; results are mixed (some Linux players still get kicked). Everyone being on a current Proton helps. Treat co-op as workable-but-not-guaranteed."
+          verified: false
+          source: "protondb.com/app/242760 (retrieved 2026-07-15)"
+
+
+  - name: "Portal"
+    steam_id: 400
+    aliases: ["portal"]
+    issues:
+      - symptom: "Native Linux build crashes on load (menu or when entering a level) on modern systems / newer glibc & Mesa"
+        cause: "Valve's aging Source native Linux runtime is no longer maintained and breaks against current system libraries; running the Windows build through Proton sidesteps the stale native binary."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> Force a specific Steam Play compatibility tool -> Proton Experimental (or latest stable). This is the community-standard fix for the native crash."
+          verified: false
+          source: "steamcommunity.com/app/400/discussions (retrieved 2026-07-15)"
+
+      - symptom: "Valve intro logos play on every launch, delaying startup"
+        cause: "Startup video plays before the main menu."
+        fix:
+          type: launch_option
+          value: "%command% -novid"
+          verified: false
+          source: "pcgamingwiki.com/wiki/Portal (retrieved 2026-07-15)"
+
+
+  - name: "Half-Life"
+    steam_id: 70
+    aliases: ["half-life", "half life", "hl1"]
+    issues:
+      - symptom: "Black screen after the Valve intro logo on launch; menu audio plays but nothing is visible"
+        cause: "The 25th-anniversary GoldSrc update added a webm intro video that can hang on the software renderer / some Linux setups, leaving a black screen."
+        fix:
+          type: launch_option
+          value: "%command% -windowed"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3114470484 (retrieved 2026-07-15)"
+
+
+  - name: "Counter-Strike: Source"
+    steam_id: 240
+    aliases: ["css", "counter-strike source"]
+    issues:
+      - symptom: "Frame times feel choppy or FPS is lower than the hardware should deliver, especially in busy scenes"
+        cause: "The Source engine does not always enable multi-threaded material queuing by default on Linux, leaving multi-core CPUs underused; the intro logos also add startup delay."
+        fix:
+          type: launch_option
+          value: "%command% -novid +mat_queue_mode 2"
+          verified: false
+          source: "steamcommunity.com/app/240 (retrieved 2026-07-15)"
+
+
+  - name: "SMITE"
+    steam_id: 386360
+    aliases: ["smite"]
+    issues:
+      - symptom: "Game does not launch or shows an EasyAntiCheat (EAC) error before the menu"
+        cause: "SMITE uses Easy Anti-Cheat; older Proton or a missing EAC runtime blocks startup. EAC Linux support was enabled by Hi-Rez and is bundled in current Proton, so an up-to-date Proton is required."
+        fix:
+          type: info
+          value: "Use the latest Proton (Experimental or Proton-GE) so the bundled Easy Anti-Cheat runtime loads. EAC is marked Supported for SMITE; on outdated Proton it fails to start."
+          verified: false
+          source: "areweanticheatyet.com/game/smite (retrieved 2026-07-15)"
+
+      - symptom: "Runs but stutters or does not use all CPU cores; frame pacing feels uneven"
+        cause: "SMITE is an Unreal Engine 3 title that does not spread work across all CPU threads by default under Proton."
+        fix:
+          type: launch_option
+          value: "%command% -USEALLAVAILABLECORES"
+          verified: false
+          source: "protondb.com/app/386360 (retrieved 2026-07-15)"
+
+      - symptom: "Cursor disappears, mouse leaves the window, or the game crashes on Alt+Tab in exclusive fullscreen"
+        cause: "Exclusive fullscreen under Proton mishandles the cursor and alt-tab; borderless is more stable."
+        fix:
+          type: info
+          value: "In-game set Display Mode to Borderless Window instead of Fullscreen to fix cursor capture and alt-tab crashes."
+          verified: false
+          source: "steamcommunity.com/app/386360 (retrieved 2026-07-15)"
+
+
+  - name: "Raft"
+    steam_id: 648800
+    aliases: ["raft"]
+    issues:
+      - symptom: "Game does not launch / stays on a black screen after clicking Play"
+        cause: "Steam Play (Proton) not enabled for the title; with Proton enabled Raft starts out-of-the-box (no anti-cheat, no native port needed)."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> 'Force a specific Steam Play compatibility tool' -> Proton Experimental (or latest stable). Starts and plays without further tweaks. Steam P2P co-op works."
+          verified: false
+          source: "protondb.com/app/648800 (retrieved 2026-07-15)"
+
+      - symptom: "Frame stutter / hitching and CPU spikes during play, typical of this Unity engine title"
+        cause: "Unity frame-pacing under Proton; a scheduler/priority boost smooths it. GameMode requests CPU governor and I/O priority."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/648800 (retrieved 2026-07-15)"
+
+
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
 # =====================================================================
