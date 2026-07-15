@@ -1,85 +1,36 @@
 # Reddit r/linux_gaming Post Draft
 
+> Post as a text post. **Attach the 4 screenshots** (dashboard, system-doctor,
+> games, benchmark) from `assets/screenshots/`. Reply to early comments fast.
+
 ## Title (max 300 chars)
 
-Gaming Command Center — open-source Linux app for GPU overclocking, CPU optimization, one-click game fixes, and system diagnostics
+Gaming Command Center — an open-source app that scans & fixes common Linux gaming issues, applies per-game Proton fixes, and does Ryzen CCD "Game Mode". Now on the AUR.
+
+<!-- Alt, shorter:
+I made an open-source Linux gaming tuning app — system doctor, per-game Proton fixes, Ryzen CCD game mode. Now on the AUR. -->
 
 ## Body
 
-Hey everyone,
+Tired of hunting through ProtonDB, Reddit and GitHub issues for the right launch option / governor / fix every time you set up a game? I got tired of it too, so I built **Gaming Command Center** — one open-source GTK4 app that puts it in a single place.
 
-I've been gaming on Linux for a while now, and the one thing that always frustrated me was how much manual setup it takes — hunting through ProtonDB, Reddit threads, and GitHub issues to find the right launch option, governor setting, or gamescope flags for each game.
+**What it does (v0.1.5):**
 
-So I'm building **Gaming Command Center** — an open-source GTK4 app that brings it all together in one place:
+- 🩺 **System Doctor** — scans for 15+ common Linux gaming issues (governor, NVIDIA P-state, Coolbits, ReBAR, gamemode.ini, audio power save…) and fixes them in one click
+- 📋 **Game fix database** — 121 games in the database (most with documented Proton/Linux fixes); one click sets the launch option or writes the config. Grows by PR, like ProtonDB but "apply it for me". Safe by design: no arbitrary shell commands, ever.
+- 🎮 **Ryzen "Game Mode"** — benchmarks each CCD and parks the weaker one with one click, like Ryzen Master's Game Mode but on Linux
+- 📈 **Live GPU/CPU monitoring** on the dashboard
 
-### What it does
+Early and honest about it: NVIDIA + AMD Ryzen focused right now. GPU overclocking is the next big feature, not shipped yet.
 
-**🩺 System Doctor**
-- Scans your system for 15+ common Linux gaming issues
-- Shows what's wrong and offers one-click fixes
-- Covers: governor settings, NVIDIA P-state bug, Coolbits, ReBAR, gamemode.ini, audio power save, Wayland/X11 detection, and more
-- Works on NVIDIA and AMD GPUs, any CPU
-
-**📋 Game Fix Database**
-- Community-maintained YAML database of known Linux/Proton issues per game
-- One-click apply: sets Steam launch options, writes config files, or shows you what to do
-- 24 games seeded so far (Overwatch 2, Cyberpunk 2077, Elden Ring, BG3, Helldivers 2, Palworld, CS2, RDR2, and more)
-- Grows by pull request — like ProtonDB, but machine-readable and with "apply it for me"
-- Security: only 4 fix types allowed (info, launch_option, file, tool_action) — no arbitrary shell commands ever
-
-**⚡ GPU Overclocking (NVIDIA)**
-- Core/VRAM offset sliders via nvidia-settings (requires Coolbits)
-- PowerMizer mode control
-- Live monitoring: clock, power, temp, VRAM, P-state, utilization
-
-**🎮 CPU Optimization**
-- Detects CPU topology automatically (no hardcoded CPU numbers)
-- For AMD Ryzen with 2+ CCDs: benchmarks each CCD to find the better silicon (silicon lottery), then parks the weaker one with one click — like Ryzen Master's Game Mode, but on Linux
-- For single-CCD or Intel CPUs: Game Mode is hidden, rest of the app works normally
-- No password needed (polkit policy included)
-
-**📊 CCD Benchmark**
-- Tests each core individually with live progress
-- Shows which CCD has better sustained boost clocks
-- Marks the best CCD with a badge
-
-### Design
-- Dark "Tokyo Night" theme, built with GTK4 + libadwaita
-- Sidebar navigation: Dashboard, Games, System Doctor, Benchmark, Settings
-- Works on any Wayland desktop (COSMIC, GNOME, KDE, etc.)
-
-### Supported hardware & distros
-- **CPU**: Any CPU — full features on AMD Ryzen 2+ CCD, basic monitoring on others
-- **GPU**: NVIDIA (overclocking via nvidia-settings) — monitoring works on any GPU
-- **Distro**: Arch, CachyOS, Manjaro, Ubuntu, Debian, Fedora, Nobara (auto-detects package manager)
-- **Desktop**: Any Wayland or X11 desktop with GTK4
-
-### Install
-```bash
-git clone https://github.com/LordHayne/GCC.git
-cd GCC
-./install.sh
+**Install (Arch/CachyOS/Manjaro):**
 ```
-Then launch "Gaming Command Center" from your app menu.
+yay -S gaming-command-center
+```
+AppImage and source install on GitHub. Any Wayland/X11 desktop with GTK4.
 
-### Roadmap
-- AUR package
-- AMD GPU support (amdgpu sysfs for overclocking + monitoring)
-- Intel CPU support
-- System tray icon
-- Auto-setup wizard ("one click, everything optimized")
-- Rust + iced rewrite (native COSMIC look, single binary)
+🔗 GitHub: https://github.com/LordHayne/GCC · Site: https://lordhayne.github.io/ · GPL-3.0
 
-### Contributing
-The game fix database (games.yaml) grows with the community. Found a fix for a game? Add it to the YAML and open a PR — the app validates everything on load, so a bad entry can never execute arbitrary commands.
-
-GitHub: https://github.com/LordHayne/GCC
-
-License: GPL-3.0
-
-Feedback welcome! I'd especially love to hear:
-- What games should we add to the fix database next?
-- What system issues should the System Doctor check for?
-- Would you use this on your setup?
+It's v0.1.5 and I'm actively building it — I'd love feedback: what games/fixes should go in next, and would you actually use this on your setup?
 
 🐧🎮
