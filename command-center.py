@@ -913,6 +913,17 @@ class CommandCenter(Adw.ApplicationWindow):
         manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
 
         css = """
+        /* === v2 design system: typography === */
+        * {
+            font-family: 'Chakra Petch', sans-serif;
+        }
+        .mono, .stat-value, .stat-value-green, .stat-value-blue, .stat-value-orange,
+        .bench-mhz, .info-card-sub, .thread-freq, .thread-id, .gpu-bar-value,
+        .page-subtitle, .status-footer {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        window { background: #13141c; }
+
         /* === Sidebar === */
         .sidebar { background: #16161e; }
         .sidebar-item {
@@ -925,10 +936,11 @@ class CommandCenter(Adw.ApplicationWindow):
             color: #a9b1d6;
         }
         .sidebar-item-active {
-            background: #24253b;
-            color: #c0caf5;
+            background: linear-gradient(90deg, rgba(122,162,247,0.16), rgba(122,162,247,0.05));
+            color: #7aa2f7;
+            border-left: 3px solid #7aa2f7;
         }
-        .sidebar-title { font-size: 16px; font-weight: bold; color: #c0caf5; }
+        .sidebar-title { font-size: 13px; font-weight: 700; color: #c0caf5; letter-spacing: 1.5px; }
         .sidebar-subtitle { font-size: 10px; color: #565f89; }
         .sidebar-footer { font-size: 9px; color: #565f89; }
 
@@ -943,7 +955,7 @@ class CommandCenter(Adw.ApplicationWindow):
 
         /* === Stat tiles === */
         .stat-tile {
-            background: #24253b;
+            background: #16161e;
             border-radius: 10px;
             padding: 12px 14px;
             border: 1px solid rgba(255,255,255,0.05);
@@ -956,7 +968,7 @@ class CommandCenter(Adw.ApplicationWindow):
 
         /* === CCD cards === */
         .ccd-card {
-            background: #24253b;
+            background: #16161e;
             border-radius: 14px;
             padding: 14px 16px;
             border: 1px solid rgba(255,255,255,0.06);
@@ -1131,7 +1143,7 @@ class CommandCenter(Adw.ApplicationWindow):
 
         /* === Wizard / Game Doctor rows === */
         .wizard-row {
-            background: #24253b;
+            background: #16161e;
             border-radius: 10px;
             padding: 10px 14px;
             border: 1px solid rgba(255,255,255,0.04);
@@ -1141,7 +1153,7 @@ class CommandCenter(Adw.ApplicationWindow):
         .wizard-fix { font-size: 10px; color: #e0af68; }
 
         .scan-row {
-            background: #24253b;
+            background: #16161e;
             border-radius: 8px;
             padding: 10px 12px;
             margin: 2px 0;
