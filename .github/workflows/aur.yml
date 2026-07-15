@@ -85,16 +85,6 @@ jobs:
           EOF
           chmod 600 ~/.ssh/config
 
-      - name: Debug — AUR SSH auth (safe; no secrets printed)
-        run: |
-          echo "== fingerprint of the key the CI actually loaded from the secret =="
-          echo "   (must match the working local key: SHA256:5QG2P1/IvN3zoNYhT8Q94gDHDvL7SkqqfZZSgK2EhDM)"
-          ssh-keygen -lf ~/.ssh/aur || echo "   !! cannot read ~/.ssh/aur — secret is malformed/not a private key"
-          if ssh-keygen -y -f ~/.ssh/aur >/dev/null 2>&1; then echo "   key has NO passphrase (good)"; else echo "   !! key unreadable or passphrase-protected"; fi
-          echo "== known_hosts lines =="; wc -l ~/.ssh/known_hosts || true
-          echo "== ssh auth test to the AUR (-vT) =="
-          ssh -vT -o BatchMode=yes aur@aur.archlinux.org 2>&1 | grep -Ei "offering|accept|denied|authenticated|Hi |publickey|password" | tail -20 || true
-
       - name: Push to the AUR
         run: |
           # ssh runs as root here and does NOT reliably expand ~ in ~/.ssh/config
