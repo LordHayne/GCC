@@ -782,6 +782,7 @@ class GamesPage(Gtk.Box):
         "session":    "entry.954762000",
         "distro":     "entry.723557649",
         "appversion": "entry.1883040327",
+        "notes":      "entry.1785954960",
     }
 
     def __init__(self, win, **kwargs):
@@ -1092,6 +1093,7 @@ class GamesPage(Gtk.Box):
             body.set_margin_top(4)
             for issue in issues:
                 body.append(self._build_issue_row(appid, name, issue))
+            body.append(self._suggest_row(appid, name))
             revealer.set_child(body)
             card.append(revealer)
 
@@ -1109,6 +1111,7 @@ class GamesPage(Gtk.Box):
                 pass
         else:
             card.append(title_row)
+            card.append(self._suggest_row(appid, name))
 
         self._load_tier_async(appid, tier_lbl)
         return card, reveal_fn
@@ -1140,6 +1143,177 @@ class GamesPage(Gtk.Box):
             return True
         except Exception:
             return False
+
+    # ---------- community contribution: suggest a NEW fix ----------
+    def _suggest_row(self, appid, name):
+        """A quiet 'contribute a fix' affordance on every game — the way players
+        add a fix that isn't in the database yet (voting handles the ones that
+        are). Shown at the bottom of a card's fixes, or under an 'all good' game
+        where the first fix is most valuable."""
+        btn = Gtk.Button(label="＋ Suggest a fix")
+        btn.add_css_class("btn-suggest")
+        btn.set_halign(Gtk.Align.START)
+        btn.set_margin_top(2)
+        btn.set_tooltip_text("Know a fix that isn't listed? Share it with the community")
+        btn.connect("clicked", lambda *_: self._suggest_fix_dialog(appid, name))
+        return btn
+
+    def _suggestion_text(self, appid, name, problem, fix, source):
+        lines = [
+            f"New fix suggestion for {name} (appid {appid})",
+            f"Problem: {problem}",
+            f"Suggested fix: {fix}",
+        ]
+        if source.strip():
+            lines.append(f"Source: {source.strip()}")
+        lines.append(f"System: {self._system_context()}")
+        lines.append(f"App: Gaming Command Center v{self.win.APP_VERSION}")
+        return "\n".join(lines)
+
+    def _github_suggestion_url(self, appid, name, problem, fix, source):
+        from urllib.parse import quote
+        title = f"New fix: {name}"
+        body = (self._suggestion_text(appid, name, problem, fix, source)
+                + "\n\n<!-- A maintainer reviews this before it's added. Thanks for contributing! -->")
+        return (f"{self.win.GITHUB_URL}/issues/new?labels=fix-suggestion"
+                f"&title={quote(title)}&body={quote(body)}")
+
+    def _google_form_suggestion_url(self, appid, name, problem, fix, source):
+        """Reuse the verification form for suggestions: the proposed fix goes in
+        Fix, the problem into Notes with a [SUGGESTION] marker, and Result is left
+        BLANK — the aggregator skips blank-Result rows, so a suggestion never
+        counts as a vote. Returns None until the form is configured."""
+        if not self.FORM_PREFILL_URL or not self.FORM_FIELDS:
+            return None
+        from urllib.parse import urlencode
+        note = f"[SUGGESTION] Problem: {problem}"
+        if source.strip():
+            note += f" | Source: {source.strip()}"
+        vals = {
+            "game": name,
+            "appid": str(appid),
+            "fix": fix,
+            "gpu": self.win.gpu.name or self._gpu_vendor() or "",
+            "cpu": self._cpu_model() or self._cpu_vendor() or "",
+            "session": {"wayland": "Wayland", "x11": "X11"}.get(self._session(), ""),
+            "distro": self._distro_name() or "",
+            "appversion": self.win.APP_VERSION,
+            "notes": note,
+            # result intentionally omitted → blank → aggregator ignores it.
+        }
+        params = {entry: vals[k] for k, entry in self.FORM_FIELDS.items() if k in vals}
+        sep = "&" if "?" in self.FORM_PREFILL_URL else "?"
+        return f"{self.FORM_PREFILL_URL}{sep}{urlencode(params)}"
+
+    def _suggest_fix_dialog(self, appid, name):
+        win = Adw.Window(modal=True, transient_for=self.win)
+        win.set_title("Suggest a fix")
+        win.set_default_size(520, -1)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        header = Adw.HeaderBar(); header.add_css_class("flat")
+        root.append(header)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+        body.set_margin_start(28); body.set_margin_end(28)
+        body.set_margin_top(6); body.set_margin_bottom(24)
+        root.append(body)
+
+        title = Gtk.Label()
+        title.set_markup("<span size='15000' weight='bold' color='#c0caf5'>Suggest a fix for "
+                         f"{GLib.markup_escape_text(name)}</span>")
+        title.set_xalign(0); title.set_wrap(True)
+        body.append(title)
+
+        sub = Gtk.Label()
+        sub.set_markup("<span color='#a9b1d6'>Know a fix that isn't listed? Share it. A "
+                       "maintainer reviews every suggestion before it's added, so the "
+                       "database stays safe. No account needed.</span>")
+        sub.set_wrap(True); sub.set_xalign(0); sub.set_margin_bottom(4)
+        body.append(sub)
+
+        def field(label, placeholder, multiline=False):
+            lbl = Gtk.Label(label=label); lbl.set_xalign(0); lbl.add_css_class("field-label")
+            body.append(lbl)
+            if multiline:
+                view = Gtk.TextView(); view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+                view.set_top_margin(6); view.set_bottom_margin(6)
+                view.set_left_margin(8); view.set_right_margin(8)
+                sc = Gtk.ScrolledWindow(); sc.set_min_content_height(54); sc.set_child(view)
+                sc.add_css_class("suggest-input-frame")
+                body.append(sc)
+                return view
+            ent = Gtk.Entry(); ent.set_placeholder_text(placeholder)
+            body.append(ent)
+            return ent
+
+        problem_e = field("What goes wrong?", "e.g. Black screen / crash on launch")
+        fix_e = field("The fix", "e.g. launch option  -dx11  · or the steps that fix it",
+                      multiline=True)
+        source_e = field("Source (optional)", "ProtonDB / forum / wiki link")
+
+        status = Gtk.Label(); status.set_xalign(0); status.set_wrap(True); status.set_margin_top(4)
+        body.append(status)
+
+        def get_text(w):
+            if isinstance(w, Gtk.TextView):
+                buf = w.get_buffer()
+                return buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()
+            return w.get_text().strip()
+
+        def gather():
+            problem, fix, source = get_text(problem_e), get_text(fix_e), get_text(source_e)
+            if not problem or not fix:
+                status.set_markup("<span color='#e0af68'>Please fill in both the problem "
+                                  "and the fix.</span>")
+                return None
+            return problem, fix, source
+
+        btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        btns.set_halign(Gtk.Align.END); btns.set_margin_top(6)
+        close_btn = Gtk.Button(label="Close"); close_btn.add_css_class("flat")
+        copy_btn = Gtk.Button(label="Copy"); copy_btn.add_css_class("btn-apply-sm")
+        gh_btn = Gtk.Button(label="Suggest on GitHub"); gh_btn.add_css_class("btn-apply-sm")
+        close_btn.connect("clicked", lambda *_: win.close())
+
+        def on_copy(_b):
+            g = gather()
+            if not g:
+                return
+            self._copy(self._suggestion_text(appid, name, *g))
+            status.set_markup("<span color='#9ece6a'>Copied — paste it wherever you like.</span>")
+
+        def on_gh(_b):
+            g = gather()
+            if not g:
+                return
+            self._open_url(self._github_suggestion_url(appid, name, *g))
+            status.set_markup("<span color='#9ece6a'>Opening GitHub in your browser…</span>")
+
+        copy_btn.connect("clicked", on_copy)
+        gh_btn.connect("clicked", on_gh)
+        btns.append(close_btn); btns.append(copy_btn); btns.append(gh_btn)
+
+        if self.FORM_PREFILL_URL and self.FORM_FIELDS:
+            send_btn = Gtk.Button(label="Send suggestion"); send_btn.add_css_class("btn-game-on")
+            send_btn.set_tooltip_text("Opens a pre-filled form — no account needed, just hit Submit")
+
+            def on_send(_b):
+                g = gather()
+                if not g:
+                    return
+                self._open_url(self._google_form_suggestion_url(appid, name, *g))
+                status.set_markup("<span color='#9ece6a'>Opening the form — just hit Submit. "
+                                  "Thanks for contributing!</span>")
+
+            send_btn.connect("clicked", on_send)
+            btns.append(send_btn)
+        else:
+            gh_btn.remove_css_class("btn-apply-sm"); gh_btn.add_css_class("btn-game-on")
+        body.append(btns)
+
+        win.set_content(root)
+        win.present()
 
     # ---------- community verification: vote + share report ----------
     @staticmethod
@@ -1832,6 +2006,16 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         .btn-play:hover { background: rgba(158,206,106,0.22); }
         .btn-play:disabled { color: #565f89; border-color: rgba(255,255,255,0.06); background: transparent; }
+        .btn-suggest {
+            background: transparent; border: 1px solid rgba(122,162,247,0.25);
+            color: #7aa2f7; font-size: 11px; border-radius: 8px; padding: 4px 11px;
+        }
+        .btn-suggest:hover { background: rgba(122,162,247,0.12); }
+        .field-label { color: #a9b1d6; font-size: 11px; font-weight: 700; margin-top: 4px; }
+        .suggest-input-frame {
+            border: 1px solid rgba(255,255,255,0.10); border-radius: 8px;
+            background: #16171f;
+        }
         .fix-feedback { margin-top: 2px; }
         .feedback-q { color: #565f89; font-size: 11px; }
         .vote-btn {
