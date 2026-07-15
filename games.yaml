@@ -2011,6 +2011,406 @@ games:
           source: "github.com/ValveSoftware/Proton/issues/9595 (retrieved 2026-07-15)"
 
 
+  - name: "THE FINALS"
+    steam_id: 2073850
+    aliases: ["the finals", "finals"]
+    issues:
+      - symptom: "Game fails to launch / EAC error - anti-cheat does not initialize under Proton"
+        cause: "The Finals uses Easy Anti-Cheat; it needs the Proton EAC runtime and the Linux EAC path enabled. Without it the game closes immediately at the splash/EAC handshake."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_EAC_LINUX=1 %command%"
+          verified: false
+          source: "github.com/pollux78/the-finals-linux-troubleshoot-guide (retrieved 2026-07-15)"
+
+      - symptom: "Crash on startup on some distros (game quits within seconds of launch)"
+        cause: "Unreal Engine 5 needs a high vm.max_map_count; distros that ship a low default (65530) crash the game. CachyOS already ships a high default, so this rarely affects this machine. The fix lives in /etc, so apply it manually."
+        fix:
+          type: info
+          value: "If the game crashes instantly, check 'sysctl vm.max_map_count'; UE5 wants it very high. CachyOS sets this by default. To change persistently, add vm.max_map_count=2147483642 to /etc/sysctl.d/ and reboot."
+          verified: false
+          source: "github.com/pollux78/the-finals-linux-troubleshoot-guide (retrieved 2026-07-15)"
+
+      - symptom: "Heavy stutter after shader compilation on NVIDIA GPUs"
+        cause: "UE5 shader/traversal stutter that persists on some NVIDIA setups. Hiding the NVIDIA GPU identity forces a code path that removes the stutter, but disables DLSS and Reflex low-latency. Primarily reported on RTX 40/50; try only if stutter is severe."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "PROTON_HIDE_NVIDIA_GPU=1 %command%"
+          verified: false
+          source: "github.com/pollux78/the-finals-linux-troubleshoot-guide (retrieved 2026-07-15)"
+
+
+  - name: "Forza Horizon 5"
+    steam_id: 1551360
+    aliases: ["fh5", "forza horizon 5"]
+    issues:
+      - symptom: "Game launches to a black screen (audio and controller input work, but nothing renders) or crashes right after the loading popup on startup"
+        cause: "Regression in recent Proton Experimental builds; FH5's D3D12/XAudio2 startup path breaks on the bleeding-edge build."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> force a stable Proton (Proton 11.0-beta2 or latest Proton stable / Proton-GE) instead of Proton Experimental. Multiple Arch/CachyOS users confirmed the black screen disappears after downgrading off the broken Experimental build."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/9758 (retrieved 2026-07-15)"
+
+      - symptom: "Playable but stutters / uneven frame pacing, especially when driving through the open world"
+        cause: "CPU governor and scheduling not optimized for the game; shader/traversal stutter is the main smoothness complaint on Linux."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/1551360 (retrieved 2026-07-15)"
+
+
+  - name: "ELDEN RING NIGHTREIGN"
+    steam_id: 2622380
+    aliases: ["nightreign", "elden ring nightreign"]
+    issues:
+      - symptom: "Game never reaches the start screen on older Proton (black screen / crash on launch), even though Easy Anti-Cheat itself is compatible"
+        cause: "NIGHTREIGN's kernel-level Easy Anti-Cheat is whitelisted for Linux and works, but the game only initializes on recent Proton. Older stable branches fail to reach the title screen."
+        fix:
+          type: info
+          value: "Set the Proton version to Proton 9.0-4 or newer (Experimental / GE also work). Properties -> Compatibility -> force a specific Steam Play tool. Do NOT disable EAC - anti-cheat is supported and required for co-op."
+          verified: false
+          source: "areweanticheatyet.com/game/elden-ring-nightreign (retrieved 2026-07-15)"
+
+      - symptom: "Long freezes / stutter (several seconds) during gameplay that don't happen on Windows, which can drop framerate low enough to disconnect from seamless co-op"
+        cause: "FromSoftware DX12 engine shader-compilation and VKD3D heap behaviour cause traversal/shader stutter; on NVIDIA the default present path adds further hitching."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "VKD3D_CONFIG=descriptor_heap PROTON_VKD3D_HEAP=1 gamemoderun %command%"
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/8751 (retrieved 2026-07-15)"
+
+
+  - name: "Street Fighter 6"
+    steam_id: 1364780
+    aliases: ["sf6", "street fighter 6"]
+    issues:
+      - symptom: "Street Fighter 6 hangs for ~30-40s on launch then returns to the Play button, or fails to start after previously working"
+        cause: "Capcom's Denuvo anti-tamper (not a kernel anti-cheat) trips up on older/stable Proton; Valve pinned the title to Proton Experimental to work around it."
+        fix:
+          type: info
+          value: "Force Proton Experimental (or a recent Proton-GE) in Compatibility. The base game and offline modes (Fighting Ground, World Tour) then run well; ordinary online (Battle Hub, Ranked, Casual) also works. Only the separate ESL Wire tournament client is blocked on Linux."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/6817 (retrieved 2026-07-15)"
+
+      - symptom: "Want extra frametime/CPU headroom for a stable 60fps in matches"
+        cause: "Default launch does not enable the system's game performance governor."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/1364780 (retrieved 2026-07-15)"
+
+
+  - name: "DayZ"
+    steam_id: 221100
+    aliases: ["dayz"]
+    issues:
+      - symptom: "DayZ won't launch, or you assume BattlEye blocks Proton on official servers"
+        cause: "Outdated info; Bohemia enabled BattlEye for Proton in Nov 2021, so official servers now work on Linux."
+        fix:
+          type: info
+          value: "DayZ runs on Linux/Proton with BattlEye active on both official and community servers. No launch options needed for most setups. Enable Steam Play (Proton) for the title and launch normally."
+          verified: false
+          source: "areweanticheatyet.com/game/dayz (retrieved 2026-07-15)"
+
+      - symptom: "DayZ crashes on launch or is unstable on newer Proton versions"
+        cause: "Some newer Proton builds regress with DayZ; a known-stable version is more reliable."
+        fix:
+          type: info
+          value: "If crashing on the default Proton, right-click DayZ -> Properties -> Compatibility and force Proton 9.0-4, widely reported as rock-solid. GE-Proton is an alternative that some report improves visuals."
+          verified: false
+          source: "protondb.com/app/221100 (retrieved 2026-07-15)"
+
+
+  - name: "Conan Exiles"
+    steam_id: 440900
+    aliases: ["conan exiles", "conan"]
+    issues:
+      - symptom: "Game refuses to launch or kicks you on official / BattlEye-protected multiplayer servers"
+        cause: "Conan Exiles uses BattlEye on official servers; BattlEye's Proton support for this title is currently marked broken, so protected servers reject the Linux client. Singleplayer and unofficial servers are unaffected."
+        fix:
+          type: info
+          value: "Play singleplayer or unofficial servers (no anti-cheat). For official/BattlEye servers, enable Steam's Proton BattlEye Runtime and try GE-Proton; success is inconsistent and not guaranteed."
+          verified: false
+          source: "areweanticheatyet.com/game/conan-exiles (retrieved 2026-07-15)"
+
+      - symptom: "Low or stuttery framerate on a multi-core CPU (UE4 not using all cores)"
+        cause: "Conan Exiles is Unreal Engine 4 and does not spread work across all CPU cores by default, capping performance on high-core-count CPUs under Proton."
+        fix:
+          type: launch_option
+          value: "%command% -USEALLAVAILABLECORES"
+          verified: false
+          source: "protondb.com/app/440900 (retrieved 2026-07-15)"
+
+
+  - name: "Where Winds Meet"
+    steam_id: 3564740
+    aliases: ["where winds meet"]
+    issues:
+      - symptom: "Where Winds Meet does not launch, or you worry a NetEase kernel anti-cheat will block it on Linux"
+        cause: "The Chinese client uses NetEase anti-cheat, but the international Steam release ships only a server-side / user-mode check with no kernel anti-cheat, so nothing blocks Proton. It runs out of the box (reported working on Proton 10) and is ProtonDB Platinum."
+        fix:
+          type: info
+          value: "Runs out of the box on Proton with no anti-cheat workaround. If it fails to start, force Proton Experimental (or Proton 10) in Compatibility and verify game files. Brand-new (2025) F2P title, so data is thin but consistently positive."
+          verified: false
+          source: "gamingonlinux.com/2025/11/where-winds-meet-works-well-on-linux (retrieved 2026-07-15)"
+
+      - symptom: "Frame drops / stutter in crowded towns and open-world areas"
+        cause: "Open-world action title is CPU- and shader-heavy; Feral GameMode raises the CPU governor and scheduling priority for smoother frametimes."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/3564740 (retrieved 2026-07-15)"
+
+
+  - name: "Path of Exile 2"
+    steam_id: 2694490
+    aliases: ["poe2", "path of exile 2"]
+    issues:
+      - symptom: "Game launches to a black/blank screen or crashes on startup under Proton (Vulkan renderer)"
+        cause: "PoE2's native Vulkan renderer does not initialize correctly under Proton; the DirectX 12 renderer (via VKD3D-Proton) is the reliable path. GGG themselves recommend switching off Vulkan to fix launch crashes."
+        fix:
+          type: info
+          value: "Switch the renderer to DirectX 12: in-game Options -> Graphics, or edit poe2_production_Config.ini in the Proton prefix (.../compatdata/2694490/pfx/.../Documents/My Games/Path of Exile 2/) and set renderer_type=DirectX12 (replacing renderer_type=Vulkan)."
+          verified: false
+          source: "x.com/pathofexile/status/1908227562733797720 (retrieved 2026-07-15)"
+
+      - symptom: "Frame-time spikes / shader-compilation stutter when new skills, monsters or areas load"
+        cause: "The GPU shader disk cache is cleared between sessions, forcing repeated shader recompilation on NVIDIA drivers."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1 %command%"
+          verified: false
+          source: "protondb.com/app/2694490 (retrieved 2026-07-15)"
+
+
+  - name: "Sid Meier's Civilization VI"
+    steam_id: 289070
+    aliases: ["civ 6", "civilization vi", "civ6"]
+    issues:
+      - symptom: "Native Linux build (Aspyr) fails to launch, crashes on startup, or hangs on a black screen on modern distros/CachyOS"
+        cause: "Aspyr effectively abandoned the native port after a buggy 2022 update rollback; the aging native binary is unstable on current Mesa/glibc/Wayland stacks. The Windows build under Proton is Gold/Platinum and far more reliable."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> Force a specific Steam Play compatibility tool -> pick Proton (Experimental or latest stable). The Windows build runs well via Proton and sidesteps the broken native launcher."
+          verified: false
+          source: "protondb.com/app/289070 (retrieved 2026-07-15)"
+
+      - symptom: "Prefer to stay on the native build but it black-screens or crashes immediately at launch"
+        cause: "The native build's bug-collection/telemetry routine crashes on startup on many modern systems before the game window appears."
+        fix:
+          type: info
+          value: "Edit ~/.local/share/aspyr-media/Sid Meier's Civilization VI/AppOptions.txt and set EnableBugCollection from 1 to 0. This lets the native build reach the main menu on systems where it otherwise dies at launch."
+          verified: false
+          source: "support.aspyr.com/hc/en-us/articles/360020133272 (retrieved 2026-07-15)"
+
+      - symptom: "Late-game turn times (AI turn processing) get very slow on large maps"
+        cause: "End-of-turn AI processing is single-thread CPU-bound in the game engine, not a GPU or driver issue; no launch flag speeds it up."
+        fix:
+          type: info
+          value: "No launch option fixes this - it is engine-side single-threaded CPU load. Mitigate with a smaller map / fewer AI civs and a performance CPU governor. On a 2-CCD 3900X, single-core boost matters more than core count."
+          verified: false
+          source: "protondb.com/app/289070 (retrieved 2026-07-15)"
+
+
+  - name: "Total War: WARHAMMER III"
+    steam_id: 1142710
+    aliases: ["warhammer 3", "total war warhammer 3", "tww3"]
+    issues:
+      - symptom: "Unsure whether to use the native Feral build or Proton"
+        cause: "Steam ID 1142710 ships an official native Linux build ported by Feral Interactive (Vulkan renderer), with no anti-cheat. It launches out of the box with the default Steam runtime."
+        fix:
+          type: info
+          value: "Native Vulkan port by Feral, no anti-cheat - installs and launches directly. ProtonDB rates it Gold (that reflects the Windows-via-Proton path); the native Feral build is the default and simplest way to start."
+          verified: false
+          source: "protondb.com/app/1142710 (retrieved 2026-07-15)"
+
+      - symptom: "Freeze / crash at main menu or campaign benchmark after loading"
+        cause: "With shadows set to 'High' on recent NVIDIA drivers (above 570), the game locks up or crashes at the main menu / benchmark. Reported on both the Feral native build and Windows via Proton."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Lower Shadow Quality below 'High' in the in-game graphics options; if it persists, roll back the NVIDIA driver to the 570 series."
+          verified: false
+          source: "community.creative-assembly.com/total-war/total-war-warhammer/bugs/10051 (retrieved 2026-07-15)"
+
+      - symptom: "Can't play multiplayer with Windows friends on the native build"
+        cause: "The Feral native Linux port uses a different math library than the Windows build, so online play is restricted to same-OS (Linux/Mac) players and mod/update cadence lags Windows."
+        fix:
+          type: info
+          value: "For cross-OS multiplayer or full mod support, run the Windows build under Proton instead of the native port (Properties -> Compatibility -> Force Proton). Use native for single-player; use Proton to match Windows friends."
+          verified: false
+          source: "gamingonlinux.com/2022/06/total-war-warhammer-iii-feral-linux-port (retrieved 2026-07-15)"
+
+
+  - name: "RimWorld"
+    steam_id: 294100
+    aliases: ["rimworld"]
+    issues:
+      - symptom: "Game won't launch or you're unsure whether to use Proton"
+        cause: "RimWorld ships a native Unity Linux build with no anti-cheat; it launches directly under Steam without Proton and is ProtonDB Platinum/strong. Forcing Proton is unnecessary and can add overhead."
+        fix:
+          type: info
+          value: "Just launch it. Leave Steam Play/Proton OFF for RimWorld so it uses the native Linux build. No anti-cheat, no compatibility layer, no tweaks needed to start."
+          verified: false
+          source: "protondb.com/app/294100 (retrieved 2026-07-15)"
+
+      - symptom: "Simulation slows down (low TPS) in large late-game colonies"
+        cause: "Late-game RimWorld is CPU-bound and largely single-threaded; tick rate drops as pawn/item counts grow. Engine-inherent, not a Linux or GPU problem. GameMode can shave a little via the performance governor."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2629266520 (retrieved 2026-07-15)"
+
+
+  - name: "Project Zomboid"
+    steam_id: 108600
+    aliases: ["project zomboid", "zomboid", "pz"]
+    issues:
+      - symptom: "Game does not launch on Arch-based distros (e.g. CachyOS): black screen for a moment then exits, or a console error like 'libstdc++.so.6: version GLIBCXX_3.4.xx not found'"
+        cause: "Project Zomboid ships its own JRE and bundles old copies of libstdc++.so.6 and related libs. On a rolling/up-to-date system the bundled libstdc++ is older than the game is built against, so the native launch fails."
+        fix:
+          type: info
+          value: "In the game install dir (default ~/.local/share/Steam/steamapps/common/ProjectZomboid), delete or rename the bundled libstdc++.so.6 so the game uses the system library. Same applies to other outdated bundled libs (libdrm.so.2, libGLdispatch.so.0). Native build, no anti-cheat."
+          verified: false
+          source: "wiki.archlinux.org/title/Steam/Game-specific_troubleshooting (retrieved 2026-07-15)"
+
+      - symptom: "Runs but stutters: very long loads, chunk-load spikes, or 'OutOfMemoryError: Java heap space' in the log"
+        cause: "The Java heap default (-Xmx) is too small; the JVM garbage-collects and re-streams chunks under load. Client heap is read from a JSON, not from Steam launch options."
+        fix:
+          type: info
+          value: "Edit ProjectZomboid64.json in the game install dir and raise the -Xmx line (e.g. -Xmx8192m vanilla, -Xmx12288m for heavy mods). Keep -Xmx under ~75% of system RAM."
+          verified: false
+          source: "steamcommunity.com/app/108600/discussions/0/598518433314769733 (retrieved 2026-07-15)"
+
+
+  - name: "Slay the Spire"
+    steam_id: 646570
+    aliases: ["slay the spire", "sts"]
+    issues:
+      - symptom: "Native Linux build fails to launch (nothing happens on Play, or crashes immediately), often after a Steam client/runtime update"
+        cause: "The bundled Java/LibGDX native runtime occasionally breaks against the current Steam Linux Runtime; the game itself has no anti-cheat and runs fine under Proton."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> 'Force a specific Steam Play compatibility tool' -> pick the latest Proton (e.g. Proton Experimental). This runs the Windows build, which launches reliably when the native build is broken."
+          verified: false
+          source: "steamcommunity.com/app/646570/discussions/1/4626979420667730529 (retrieved 2026-07-15)"
+
+
+  - name: "Brawlhalla"
+    steam_id: 291550
+    aliases: ["brawlhalla"]
+    issues:
+      - symptom: "Brawlhalla won't launch, or you're worried its anti-cheat will block it"
+        cause: "Brawlhalla is a Windows Steam build run through Proton. It uses Easy Anti-Cheat, but the developer shipped Proton EAC support in 2021, so EAC loads in the userspace runtime - there is no kernel-level anti-cheat. The Steam build also does not force a Ubisoft Connect login."
+        fix:
+          type: info
+          value: "Works out of the box via Proton (ProtonDB Gold). No kernel anti-cheat: EAC runs in Proton's userspace runtime and the Steam build needs no Ubisoft Connect login. Use Proton 9+ or Experimental if you hit any launch hiccups."
+          verified: false
+          source: "protondb.com/app/291550 (retrieved 2026-07-15)"
+
+      - symptom: "Brawlhalla feels capped or has extra input lag"
+        cause: "By default the game targets 60 fps; uncapping the frame rate lowers input latency, done via a native game launch argument passed through Proton."
+        fix:
+          type: launch_option
+          value: "%command% -unlockfps"
+          verified: false
+          source: "brawlhalla.wiki.gg/wiki/Launch_options (retrieved 2026-07-15)"
+
+
+  - name: "Assetto Corsa"
+    steam_id: 244210
+    aliases: ["assetto corsa"]
+    issues:
+      - symptom: "The in-game launcher crashes or shows a black screen and never reaches the main menu on the default Proton runtime"
+        cause: "The stock Kunos launcher fails to initialize CEF/dxgi on older Proton; Proton-GE 8.3+ fixes launcher startup and the game is Gold-rated there."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> force Proton-GE 8.3 or newer (or current Proton Experimental). If a launcher prefix already exists, delete steamapps/compatdata/244210 and relaunch to rebuild it."
+          verified: false
+          source: "protondb.com/app/244210 (retrieved 2026-07-15)"
+
+      - symptom: "Game launches but has uneven frame pacing / lower-than-expected FPS versus Windows"
+        cause: "The CPU governor stays on-demand and the render thread isn't prioritized; wrapping the game in gamemode raises the governor to performance for smoother frametimes."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/244210 (retrieved 2026-07-15)"
+
+
+  - name: "Farming Simulator 25"
+    steam_id: 2300320
+    aliases: ["fs25", "farming simulator 25"]
+    issues:
+      - symptom: "Game fails to launch (black screen / crash on startup) on older Proton versions such as Proton 9.0-4"
+        cause: "FS25's launcher/renderer is unstable on older stable Proton builds; a newer Proton runtime is needed."
+        fix:
+          type: info
+          value: "Set the game's Steam compatibility tool to Proton Experimental (or GE-Proton 10+), then launch. This resolves the startup issue for the large majority of reporters. No Linux-blocking anti-cheat; multiplayer works."
+          verified: false
+          source: "protondb.com/app/2300320 (retrieved 2026-07-15)"
+
+      - symptom: "Runs but framerate is lower than expected / uneven, especially in large maps"
+        cause: "FS25 ships a DirectX 12 renderer that translates more efficiently through Proton than the default path on many setups."
+        fix:
+          type: launch_option
+          value: "%command% -dx12"
+          verified: false
+          source: "rootgamer.net/en/tests/farming-simulator-25 (retrieved 2026-07-15)"
+
+
+  - name: "PEAK"
+    steam_id: 3527290
+    aliases: ["peak"]
+    issues:
+      - symptom: "Game hangs on the developer/publisher logos or shows a black screen and never reaches the menu on some Proton versions"
+        cause: "Unity's default DX rendering path fails to initialize under certain Proton/driver combos; forcing the Vulkan renderer avoids the hang and gives smoother frame pacing / less first-run stutter."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "%command% -force-vulkan"
+          verified: false
+          source: "protondb.com/app/3527290 (retrieved 2026-07-15)"
+
+
+  - name: "Resident Evil Requiem"
+    steam_id: 3764200
+    aliases: ["re requiem", "resident evil requiem"]
+    issues:
+      - symptom: "Game locks you out for 24 hours after you switch Proton versions a few times"
+        cause: "Ships with Denuvo Anti-Tamper DRM; each Proton version counts as a new machine activation, and Denuvo allows only 5 activations per 24 hours - a common Linux/Steam Deck gotcha."
+        fix:
+          type: info
+          value: "Pick one Proton version and stick with it. Do NOT hop between Proton builds to troubleshoot - each swap burns a Denuvo activation (changing launch options or in-game settings does NOT count). If locked out, wait 24h. Prefer Valve's assigned/default Proton for this title."
+          verified: false
+          source: "gamingonlinux.com/2025/05/denuvo-will-lock-you-out-of-games-on-linux (retrieved 2026-07-15)"
+
+      - symptom: "Freezes/hard-locks roughly 30 seconds after launch on Linux"
+        cause: "RE Engine + Proton compatibility on some Proton builds; appears build-dependent."
+        fix:
+          type: info
+          value: "Use stable Proton 10 (or the Steam-assigned default). Users report switching back to regular Proton 10 resolves the early freeze. Change deliberately and once, to avoid tripping the Denuvo activation limit above."
+          verified: false
+          source: "steamcommunity.com/app/3764200/discussions (retrieved 2026-07-15)"
+
+      - symptom: "Traversal/shader stutter and high VRAM pressure at higher texture settings"
+        cause: "RE Engine streams textures aggressively and compiles shaders on the fly; on an 8 GB card the in-game texture-memory bar can push past VRAM and cause hitching."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Let Steam finish shader pre-caching before first play, and keep in-game Texture Quality within the on-screen VRAM budget bar (8 GB on the 2070 SUPER). No game-specific perf launch option is verified yet - treat as early data."
+          verified: false
+          source: "protondb.com/app/3764200 (retrieved 2026-07-15)"
+
+
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
 # =====================================================================
