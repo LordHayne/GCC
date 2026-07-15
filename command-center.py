@@ -16,7 +16,7 @@ Dark themed GUI with CCD-Parking, GPU-OC, Live Monitoring, and System Scanner.
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, GLib, Gdk, GObject
+from gi.repository import Gtk, Adw, GLib, Gdk, GObject, Gio
 import subprocess, os, re, shutil, threading, time
 from system_scanner import scan_system
 from topology import CPUTopology, format_cpu_list, save_config
@@ -975,6 +975,15 @@ class GamesPage(Gtk.Box):
 
         spacer = Gtk.Box(); spacer.set_hexpand(True); title_row.append(spacer)
 
+        # Launch straight from the app, so applying a fix and testing it is a
+        # one-click loop instead of alt-tabbing to Steam. Steam honours the
+        # launch options we set, so this really does exercise the fix.
+        play = Gtk.Button(label="▶ Play"); play.add_css_class("btn-play")
+        play.set_valign(Gtk.Align.CENTER)
+        play.set_tooltip_text("Launch this game through Steam")
+        play.connect("clicked", self._on_play, appid)
+        title_row.append(play)
+
         # Fix-status pill — the actionable signal, so it carries the colour.
         pill = Gtk.Label(); pill.set_valign(Gtk.Align.CENTER)
         if issues:
@@ -991,12 +1000,231 @@ class GamesPage(Gtk.Box):
         card.append(title_row)
 
         for issue in issues:
-            card.append(self._build_issue_row(appid, issue))
+            card.append(self._build_issue_row(appid, name, issue))
 
         self._load_tier_async(appid, tier_lbl)
         return card
 
-    def _build_issue_row(self, appid, issue):
+    def _on_play(self, btn, appid):
+        """Start the game via Steam's URL handler. Steam applies the launch
+        options we've set, so this is the quickest way to check a fix worked."""
+        launched = self._open_url(f"steam://rungameid/{appid}")
+        btn.set_sensitive(False)
+        btn.set_label("Launching…" if launched else "Steam?")
+        def restore():
+            btn.set_sensitive(True); btn.set_label("▶ Play")
+            return False
+        GLib.timeout_add(4000, restore)
+
+    @staticmethod
+    def _open_url(url):
+        """Open a URI with the desktop's default handler, working across GTK
+        versions (Gtk.UriLauncher is 4.10+, absent on the AppImage's 4.6). Tries
+        the GLib route first, then xdg-open. Returns True if something took it."""
+        try:
+            Gio.AppInfo.launch_default_for_uri(url, None)
+            return True
+        except Exception:
+            pass
+        try:
+            subprocess.Popen(["xdg-open", url],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            return False
+
+    # ---------- community verification: vote + share report ----------
+    @staticmethod
+    def _cpu_model():
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("model name"):
+                        return line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+        return None
+
+    @staticmethod
+    def _distro_name():
+        try:
+            with open("/etc/os-release") as f:
+                for line in f:
+                    if line.startswith("PRETTY_NAME="):
+                        return line.split("=", 1)[1].strip().strip('"')
+        except OSError:
+            pass
+        return None
+
+    def _system_context(self):
+        """A one-line hardware fingerprint. This is the whole point of a report:
+        a fix that works on NVIDIA+Wayland+AMD may be irrelevant elsewhere, so a
+        result is only meaningful next to the system it was tested on."""
+        gpu = self.win.gpu.name or self._gpu_vendor() or "unknown GPU"
+        cpu = self._cpu_model() or (self._cpu_vendor() or "unknown CPU")
+        session = {"wayland": "Wayland", "x11": "X11"}.get(self._session(), "unknown session")
+        parts = [f"GPU: {gpu}", f"CPU: {cpu}", session]
+        distro = self._distro_name()
+        if distro:
+            parts.append(distro)
+        return " · ".join(parts)
+
+    @staticmethod
+    def _fix_summary(fix):
+        if fix.type == "launch_option":
+            return f"launch option: {fix.value}"
+        if fix.type == "file":
+            return f"file: {fix.path}"
+        if fix.type == "tool_action":
+            return f"action: {fix.action}"
+        return fix.value
+
+    def _fix_report_text(self, appid, name, issue, worked):
+        """Human-readable report — used verbatim both as the GitHub issue body
+        and as the clipboard text, so the two channels carry identical info."""
+        lines = [
+            f"Game: {name} (appid {appid})",
+            f"Issue: {issue.symptom}",
+            f"Fix: {self._fix_summary(issue.fix)}",
+            f"Result: {'✅ Worked' if worked else '❌ Did NOT work'}",
+            f"System: {self._system_context()}",
+            f"App: Gaming Command Center v{self.win.APP_VERSION}",
+        ]
+        if issue.fix.source:
+            lines.append(f"Fix source: {issue.fix.source}")
+        return "\n".join(lines)
+
+    def _github_issue_url(self, appid, name, issue, worked):
+        from urllib.parse import quote
+        title = f"Fix report: {name} — {'worked' if worked else 'did not work'}"
+        body = (self._fix_report_text(appid, name, issue, worked)
+                + "\n\n<!-- Anything to add? Extra detail helps. Thanks for testing! -->")
+        return (f"{self.win.GITHUB_URL}/issues/new?labels=fix-report"
+                f"&title={quote(title)}&body={quote(body)}")
+
+    def _votes_path(self):
+        base = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+        return os.path.join(base, "gaming-command-center", "fix_reports.json")
+
+    @staticmethod
+    def _vote_key(appid, issue):
+        return f"{appid}:{issue.fix.type}:{issue.symptom}"
+
+    def _load_votes(self):
+        try:
+            import json
+            with open(self._votes_path()) as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _recorded_vote(self, appid, issue):
+        """The user's own past vote for this fix (True/False), or None."""
+        v = self._load_votes().get(self._vote_key(appid, issue))
+        return v.get("worked") if isinstance(v, dict) else None
+
+    def _record_vote(self, appid, issue, worked):
+        import json
+        votes = self._load_votes()
+        votes[self._vote_key(appid, issue)] = {"worked": bool(worked), "ts": int(time.time())}
+        try:
+            path = self._votes_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(votes, f)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+
+    def _build_feedback_row(self, appid, name, issue):
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        box.add_css_class("fix-feedback")
+        box.set_margin_top(3)
+        prompt = Gtk.Label(); prompt.add_css_class("feedback-q"); prompt.set_xalign(0)
+        prompt.set_valign(Gtk.Align.CENTER)
+        prev = self._recorded_vote(appid, issue)
+        prompt.set_label("Did this fix work for you?" if prev is None else
+                         ("You reported: 👍 worked" if prev else "You reported: 👎 didn't"))
+        box.append(prompt)
+        up = Gtk.Button(label="👍"); up.add_css_class("vote-btn")
+        up.set_tooltip_text("This fix worked for me — share the result")
+        up.connect("clicked", self._on_fix_feedback, appid, name, issue, True, prompt)
+        down = Gtk.Button(label="👎"); down.add_css_class("vote-btn")
+        down.set_tooltip_text("This fix didn't work for me — share the result")
+        down.connect("clicked", self._on_fix_feedback, appid, name, issue, False, prompt)
+        box.append(up); box.append(down)
+        return box
+
+    def _on_fix_feedback(self, btn, appid, name, issue, worked, prompt):
+        self._record_vote(appid, issue, worked)
+        prompt.set_label("Thanks! You reported: " +
+                         ("👍 worked" if worked else "👎 didn't"))
+        self._share_report_dialog(appid, name, issue, worked)
+
+    def _share_report_dialog(self, appid, name, issue, worked):
+        """Offer both channels: a one-click pre-filled GitHub issue for users who
+        have an account, and 'Copy report' for everyone else — no account needed,
+        paste it into Discord/email/wherever. Same text either way."""
+        report = self._fix_report_text(appid, name, issue, worked)
+        gh_url = self._github_issue_url(appid, name, issue, worked)
+
+        win = Adw.Window(modal=True, transient_for=self.win)
+        win.set_title("Share your result")
+        win.set_default_size(500, -1)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        header = Adw.HeaderBar(); header.add_css_class("flat")
+        root.append(header)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=13)
+        body.set_margin_start(28); body.set_margin_end(28)
+        body.set_margin_top(6); body.set_margin_bottom(24)
+        root.append(body)
+
+        title = Gtk.Label()
+        title.set_markup("<span size='15000' weight='bold' color='#c0caf5'>Thanks for testing! 🙌</span>")
+        title.set_xalign(0)
+        body.append(title)
+
+        sub = Gtk.Label()
+        sub.set_markup("<span color='#a9b1d6'>Sharing your result makes the database "
+                       "better for everyone. No GitHub account? Just copy the report "
+                       "and paste it anywhere — our community, an email, wherever.</span>")
+        sub.set_wrap(True); sub.set_xalign(0)
+        body.append(sub)
+
+        rep = Gtk.Label(label=report)
+        rep.set_wrap(True); rep.set_xalign(0); rep.set_selectable(True)
+        rep.add_css_class("report-box")
+        body.append(rep)
+
+        status = Gtk.Label(); status.set_xalign(0); status.set_wrap(True)
+        body.append(status)
+
+        btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        btns.set_halign(Gtk.Align.END); btns.set_margin_top(4)
+        copy_btn = Gtk.Button(label="Copy report"); copy_btn.add_css_class("btn-apply-sm")
+        gh_btn = Gtk.Button(label="Report on GitHub"); gh_btn.add_css_class("btn-game-on")
+        close_btn = Gtk.Button(label="Close"); close_btn.add_css_class("flat")
+
+        def on_copy(_b):
+            self._copy(report)
+            status.set_markup("<span color='#9ece6a'>Copied — paste it wherever you like.</span>")
+        def on_gh(_b):
+            self._open_url(gh_url)
+            status.set_markup("<span color='#9ece6a'>Opening GitHub in your browser…</span>")
+        copy_btn.connect("clicked", on_copy)
+        gh_btn.connect("clicked", on_gh)
+        close_btn.connect("clicked", lambda *_: win.close())
+        btns.append(close_btn); btns.append(copy_btn); btns.append(gh_btn)
+        body.append(btns)
+
+        win.set_content(root)
+        win.present()
+
+    def _build_issue_row(self, appid, name, issue):
         """v2 issue: text column (symptom + badge, cause, fix) left, action right."""
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         row.add_css_class("issue-row")
@@ -1033,6 +1261,11 @@ class GamesPage(Gtk.Box):
         detail.add_css_class("issue-info"); detail.set_xalign(0); detail.set_wrap(True)
         detail.set_selectable(True)
         col.append(detail)
+
+        # Community verification — the single strongest signal for the database.
+        # Anyone can vote (no account needed); sharing the result afterwards is a
+        # second, optional step that offers both a GitHub issue and a plain copy.
+        col.append(self._build_feedback_row(appid, name, issue))
         row.append(col)
 
         # Action column
@@ -1425,6 +1658,24 @@ class CommandCenter(Adw.ApplicationWindow):
             color: #7aa2f7; font-weight: 700; font-size: 10px; border-radius: 8px; padding: 7px 14px;
         }
         .btn-apply-sm:hover { background: rgba(122,162,247,0.18); }
+        .btn-play {
+            background: rgba(158,206,106,0.12); border: 1px solid rgba(158,206,106,0.28);
+            color: #9ece6a; font-weight: 700; font-size: 11px; border-radius: 8px; padding: 5px 13px;
+        }
+        .btn-play:hover { background: rgba(158,206,106,0.22); }
+        .btn-play:disabled { color: #565f89; border-color: rgba(255,255,255,0.06); background: transparent; }
+        .fix-feedback { margin-top: 2px; }
+        .feedback-q { color: #565f89; font-size: 11px; }
+        .vote-btn {
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 7px; padding: 1px 8px; font-size: 12px; min-height: 0;
+        }
+        .vote-btn:hover { background: rgba(255,255,255,0.10); }
+        .report-box {
+            background: #16171f; border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px; padding: 11px 13px;
+            color: #9aa5ce; font-family: monospace; font-size: 11px;
+        }
         .badge-verified {
             background: rgba(158,206,106,0.15); color: #9ece6a;
             border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: bold;
