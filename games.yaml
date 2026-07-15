@@ -2770,6 +2770,317 @@ games:
           source: "protondb.com/app/648800 (retrieved 2026-07-15)"
 
 
+  - name: "Half-Life 2"
+    steam_id: 220
+    aliases: ["half-life 2", "hl2"]
+    issues:
+      - symptom: "Native Linux build fails to launch or crashes on startup after the Nov 2024 20th-anniversary update"
+        cause: "The reworked native Source build is occasionally unstable on modern Mesa/NVIDIA setups; forcing a Proton runtime sidesteps the native binary entirely."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> 'Force a specific Steam Play compatibility tool' -> Proton Experimental. Only needed if the native build misbehaves; otherwise leave it off. Native, no anti-cheat."
+          verified: false
+          source: "protondb.com/app/220 (retrieved 2026-07-15)"
+
+      - symptom: "Valve/intro logo videos play on every launch, occasionally hanging before the main menu"
+        cause: "Source plays bundled intro movies at startup; -novid skips them for a faster, cleaner launch."
+        fix:
+          type: launch_option
+          value: "%command% -novid"
+          verified: false
+          source: "pcgamingwiki.com/wiki/Half-Life_2 (retrieved 2026-07-15)"
+
+
+  - name: "Arma 3"
+    steam_id: 107410
+    aliases: ["arma 3", "arma3"]
+    issues:
+      - symptom: "Arma 3 hangs or freezes shortly after launching under Proton, especially with a high-polling-rate (1000 Hz) mouse"
+        cause: "Proton's default input handling chokes on high mouse-poll rates in the Real Virtuality engine; forcing raw input avoids the freeze. BattlEye is supported on Proton (Bohemia enabled it Nov 2021), so official servers work."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_RAW_INPUT=1 %command%"
+          verified: false
+          source: "protondb.com/app/107410 (retrieved 2026-07-15)"
+
+      - symptom: "Low/stuttery FPS in Arma 3 on Linux (engine is single-thread CPU-bound)"
+        cause: "Arma 3's Real Virtuality 4 engine is heavily CPU-bound on one core; trimming startup work and giving it explicit memory reduces stutter and load time."
+        fix:
+          type: launch_option
+          value: "%command% -noSplash -world=empty -maxMem=8192"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3393417605 (retrieved 2026-07-15)"
+
+
+  - name: "Sons of the Forest"
+    steam_id: 1326470
+    aliases: ["sons of the forest", "sotf"]
+    issues:
+      - symptom: "Sons of the Forest launches but runs choppy / low FPS on NVIDIA; DLSS is missing in the graphics menu"
+        cause: "Under Proton the NVIDIA NVAPI layer (which exposes DLSS) is not always enabled, so the game's built-in DLSS upscaler stays unavailable."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "PROTON_ENABLE_NVAPI=1 %command%"
+          verified: false
+          source: "protondb.com/app/1326470 (retrieved 2026-07-15)"
+
+      - symptom: "Frametime stutter / CPU not boosting during play on Proton"
+        cause: "CPU governor stays in a power-saving profile; UE traversal stutter is worse without a performance governor. No anti-cheat; P2P co-op works."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/1326470 (retrieved 2026-07-15)"
+
+      - symptom: "Game RAM usage climbs until it crashes / reboots the machine over a long session"
+        cause: "Known memory-leak reported under Proton; primarily affects low-RAM systems (e.g. Steam Deck ~14GB)."
+        fix:
+          type: info
+          value: "Use latest Proton Experimental or Proton-GE; the memory leak mainly crashes low-RAM systems, less of an issue on desktops with 16GB+ RAM."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/6559 (retrieved 2026-07-15)"
+
+
+  - name: "Cities: Skylines"
+    steam_id: 255710
+    aliases: ["cities skylines", "cities: skylines"]
+    issues:
+      - symptom: "Game/launcher fails to start or the Paradox launcher window crashes on a Wayland session (native build)"
+        cause: "The bundled Paradox launcher is an Electron app that mishandles native Wayland; it needs to fall back to XWayland."
+        when: { session: wayland }
+        fix:
+          type: launch_option
+          value: "ELECTRON_OZONE_PLATFORM_HINT=x11 %command%"
+          verified: false
+          source: "wiki.archlinux.org/title/Steam/Game-specific_troubleshooting (retrieved 2026-07-15)"
+
+      - symptom: "Native build stutters / low FPS in large, late-game cities even though the GPU is not saturated"
+        cause: "The Unity simulation is single-thread CPU-bound at high population; the native Linux binary performs worse here than the Windows build. No native launch flag fixes this."
+        fix:
+          type: info
+          value: "This is inherent CPU-bound simulation, not a config bug. If large-city performance is poor on the native build, force the game through Proton (Properties -> Compatibility) - many players report smoother late-game framerates that way. No anti-cheat; native needs no launch options to run."
+          verified: false
+          source: "protondb.com/app/255710 (retrieved 2026-07-15)"
+
+
+  - name: "Sid Meier's Civilization V"
+    steam_id: 8930
+    aliases: ["civ 5", "civilization v", "civ5"]
+    issues:
+      - symptom: "Native (Aspyr) Linux build fails to launch, hangs on a black screen after the intro videos, or shows graphical corruption on modern systems"
+        cause: "The aging Aspyr OpenGL port is unmaintained and breaks against current Mesa/NVIDIA drivers; forcing the Windows build through Proton is now the more reliable path and generally performs as well or better."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> 'Force a specific Steam Play compatibility tool' -> pick Proton (Experimental / GE), then launch. This runs the Windows build instead of the native port. No anti-cheat, so Proton is safe. If the native build launches fine for you, no action is needed."
+          verified: false
+          source: "protondb.com/app/8930 (retrieved 2026-07-15)"
+
+      - symptom: "Turn processing ('Please Wait' between turns) gets progressively slower in the late game on large maps"
+        cause: "Civ V's turn/AI/pathfinding logic is CPU-bound and effectively single-threaded, limited by per-core speed and the engine's ~4 GB memory ceiling, not the GPU. Engine-inherent, identical on native and Proton."
+        fix:
+          type: info
+          value: "No launch option meaningfully speeds up turn times; it is bound by single-thread CPU performance. Practical mitigations are gameplay-side: smaller map size and fewer civ/city-state slots. A high single-thread-clock CPU (a 3900X core is plenty) helps more than any GPU tweak."
+          verified: false
+          source: "steamcommunity.com/app/8930 (retrieved 2026-07-15)"
+
+
+  - name: "Satisfactory"
+    steam_id: 526870
+    aliases: ["satisfactory"]
+    issues:
+      - symptom: "Frame-pacing hitches / shader-compilation stutter when panning across large factories on NVIDIA; DX12 (the default renderer) adds CPU overhead under Proton"
+        cause: "Satisfactory defaults to the DX12 RHI, which Proton translates to Vulkan via vkd3d-proton and recompiles pipelines on the fly. The engine also ships a native Vulkan RHI that skips the translation layer and often gives smoother frame times on NVIDIA. No anti-cheat; co-op works."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "%command% -vulkan"
+          verified: false
+          source: "protondb.com/app/526870 (retrieved 2026-07-15)"
+
+      - symptom: "Brief stutter on the first playthrough / after updates that clears itself; late-game mega-factories become CPU-bound"
+        cause: "UE5 builds its pipeline/shader cache during the first minutes of play; once cached, stutter stops. Large-factory simulation is single-thread/CPU-limited by design, so no launch flag removes it."
+        fix:
+          type: info
+          value: "Let the shader cache build on first launch (don't clear the Proton/DXVK cache). For big factories, cap in-game settings and rely on Game Mode's CPU performance profile rather than a launch flag."
+          verified: false
+          source: "steamcommunity.com/app/526870/discussions/0/4625853880055465823 (retrieved 2026-07-15)"
+
+
+  - name: "Risk of Rain 2"
+    steam_id: 632360
+    aliases: ["risk of rain 2", "ror2"]
+    issues:
+      - symptom: "Game fails to launch, crashes, or online co-op won't connect when Steam runs the old bundled native Linux build"
+        cause: "Risk of Rain 2's native Linux build was abandoned at an old game version and is out of sync with the current Windows build; forcing Proton is the standard fix and is how the game runs Platinum."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> check 'Force a specific Steam Play compatibility tool' and select a modern Proton (Experimental or Proton 9+). No launch options needed after that; the game runs out of the box. No anti-cheat."
+          verified: false
+          source: "protondb.com/app/632360 (retrieved 2026-07-15)"
+
+      - symptom: "Frame rate degrades badly in long runs as on-screen item/enemy/projectile density climbs"
+        cause: "This is Unity CPU-bound simulation load from item/entity density, not a Proton/GPU translation problem, so no launch option meaningfully removes it."
+        fix:
+          type: info
+          value: "Treat as an engine limitation, not a Proton bug. There is no reliable launch_option fix; keep to a current Proton build and reduce late-run stacking of highly-active items."
+          verified: false
+          source: "protondb.com/app/632360 (retrieved 2026-07-15)"
+
+
+  - name: "Grim Dawn"
+    steam_id: 219990
+    aliases: ["grim dawn"]
+    issues:
+      - symptom: "Game shows a black screen, crashes, or fails to launch under Proton (DX11 renderer)"
+        cause: "The default DirectX 11 renderer can fail to initialize under Proton, especially after GPU driver updates; the older DX9 renderer is more reliable. No anti-cheat."
+        fix:
+          type: launch_option
+          value: "%command% /d3d9"
+          verified: false
+          source: "steamcommunity.com/app/219990/discussions/0/1776010325134732587 (retrieved 2026-07-15)"
+
+
+  - name: "Human: Fall Flat"
+    steam_id: 477160
+    aliases: ["human fall flat", "human: fall flat"]
+    issues:
+      - symptom: "Game fails to launch, crashes on start, or misbehaves because Steam runs the abandoned native Linux build"
+        cause: "The old native Linux port is unmaintained and no longer updated; only the Windows build via Proton receives current updates and runs reliably."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> enable 'Force a specific Steam Play compatibility tool' and select a recent Proton (Proton 8+ / Experimental). This runs the Windows build, which starts cleanly and works for co-op. No anti-cheat."
+          verified: false
+          source: "protondb.com/app/477160 (retrieved 2026-07-15)"
+
+
+  - name: "Age of Empires II: Definitive Edition"
+    steam_id: 813780
+    aliases: ["aoe2", "age of empires 2", "aoe2 de"]
+    issues:
+      - symptom: "Game launches to a black screen (or freezes) after the opening cinematic; music may play but the main menu never appears"
+        cause: "Under Proton the intro video playback hangs the render loop before the menu initializes; this is the single most common launch-blocker for AoE2 DE on Linux."
+        fix:
+          type: launch_option
+          value: "SKIPINTRO %command%"
+          verified: false
+          source: "protondb.com/app/813780 (retrieved 2026-07-15)"
+
+      - symptom: "Runs but feels sluggish / has frame dips during large battles"
+        cause: "AoE2 DE runs far better through DXVK (Vulkan). Modern Proton defaults to DXVK, so the main remaining win is CPU-side frame pacing via Feral GameMode. No kernel anti-cheat."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "aoe2.arkanosis.net/linux (retrieved 2026-07-15)"
+
+
+  - name: "Crusader Kings III"
+    steam_id: 1158310
+    aliases: ["ck3", "crusader kings 3"]
+    issues:
+      - symptom: "Game does not launch / hangs on the Paradox launcher after a Steam or expansion update (native Linux)"
+        cause: "CK3 ships a native Linux build with no anti-cheat, but Steam sometimes overwrites the launcher folder with the Windows launcher files, leaving the native launcher unable to start."
+        fix:
+          type: info
+          value: "In Properties -> Compatibility, force a Proton version, close Properties, then switch back to native Linux. This makes Steam re-pull the correct Linux launcher files. If it still hangs, verify integrity of game files."
+          verified: false
+          source: "forum.paradoxplaza.com/forum/threads/ck-iii-paradox-launcher-is-borked.1448751 (retrieved 2026-07-15)"
+
+      - symptom: "Severe FPS drop / stutter when zoomed in on the map or in late game on the native Vulkan renderer"
+        cause: "The native Linux build uses Vulkan; patch 1.18 introduced a large zoomed-in performance regression. Paradox restored most of it in 1.18.2 (Dec 2025), but Vulkan can still be choppy for some."
+        fix:
+          type: info
+          value: "First update to 1.18.2 or later, which restores most Vulkan performance. If still choppy, run the game via Proton and choose the DX11 renderer in the launcher, which several users report is smoother than native Vulkan."
+          verified: false
+          source: "gamingonlinux.com/2025/12/paradox-fixed-vulkan-performance-crusader-kings-iii (retrieved 2026-07-15)"
+
+
+  - name: "Mount & Blade II: Bannerlord"
+    steam_id: 261550
+    aliases: ["bannerlord", "mount and blade 2"]
+    issues:
+      - symptom: "Game hangs on the TaleWorlds launcher, shows a black screen, or has dead/broken mouse input on launch under Proton"
+        cause: "Bannerlord's own launcher and its experimental Vulkan backend are unreliable under Proton; the default DirectX 11 (DXVK) render path is the stable one, and older Proton builds mishandle launcher input."
+        fix:
+          type: info
+          value: "Use a current Proton (Experimental or a recent GE-Proton) and leave the launcher's renderer on DirectX 11 (default DXVK). Do NOT switch the launcher to the native Vulkan backend on Proton - it commonly crashes on launch. No client-side anti-cheat in single-player."
+          verified: false
+          source: "protondb.com/app/261550 (retrieved 2026-07-15)"
+
+      - symptom: "Large battles stutter, drop FPS hard, or freeze at high troop counts; game is CPU-bound"
+        cause: "Bannerlord simulates every unit on the CPU, so battle size is the dominant performance lever; the always-on launcher also adds measurable overhead on Proton."
+        fix:
+          type: info
+          value: "Lower 'Battle Size' in Options -> Performance (the biggest CPU lever). Skipping the Bannerlord launcher also reduces overhead but requires a manual file symlink, so it is not offered as a launch option here."
+          verified: false
+          source: "steamcommunity.com/app/261550/discussions/0/2144217924392222478 (retrieved 2026-07-15)"
+
+
+  - name: "Balatro"
+    steam_id: 2379780
+    aliases: ["balatro"]
+    issues:
+      - symptom: "Runs out of the box on Proton with no configuration (tiny LOVE/Lua 2D card game, no anti-cheat)"
+        cause: "Balatro is extremely lightweight and fully compatible with Proton - ProtonDB rates it Platinum (strong confidence, 487 reports). No launch options are needed to start or run smoothly."
+        fix:
+          type: info
+          value: "Just install and play. No launch options required. Verified Platinum on ProtonDB; no anti-cheat. Runs at capped frame rate with negligible load out of the box."
+          verified: false
+          source: "protondb.com/app/2379780 (retrieved 2026-07-15)"
+
+
+  - name: "Ready or Not"
+    steam_id: 1144200
+    aliases: ["ready or not", "ron"]
+    issues:
+      - symptom: "Black screen or crash on startup under Proton; game hangs before reaching the menu"
+        cause: "Ready or Not (UE4/5) can pick the DX12 renderer, which is less stable than DX11 under Proton on some setups; forcing DX11 is the most-reported startup fix. No blocking anti-cheat; P2P co-op works."
+        fix:
+          type: launch_option
+          value: "%command% -dx11"
+          verified: false
+          source: "gameleap.com/articles/ready-or-not-crashing-on-startup (retrieved 2026-07-15)"
+
+      - symptom: "Recurring shader-compilation stutter/hitching during play (Unreal Engine)"
+        cause: "UE compiles pipeline shaders on-the-fly; the NVIDIA driver's on-disk shader cache is small and gets auto-purged, so shaders keep recompiling every session."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "__GL_SHADER_DISK_CACHE=1 __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1 %command%"
+          verified: false
+          source: "protondb.com/app/1144200 (retrieved 2026-07-15)"
+
+
+  - name: "FINAL FANTASY XIV Online"
+    steam_id: 39210
+    aliases: ["ffxiv", "final fantasy xiv", "ff14"]
+    issues:
+      - symptom: "Game shows as installed but the official Square Enix launcher fails to load, hangs on a blank window, or errors out through Steam Proton"
+        cause: "The bundled official launcher uses an embedded .NET/CEF browser that is unreliable under Proton/Wine; the game client itself runs fine, only the launcher wrapper is broken."
+        fix:
+          type: info
+          value: "Use the community launcher XIVLauncher/XLCore instead of the official one. Install the native Linux build via Flatpak: flatpak install flathub dev.goats.xivlauncher, then log in through it - it handles patching and boots straight into the game. FFXIV has no kernel-level anti-cheat (detection is server-side), so this is fully allowed."
+          verified: false
+          source: "goatcorp.github.io/faq/xl_troubleshooting.html (retrieved 2026-07-15)"
+
+      - symptom: "Launcher connection/patching errors or gets stuck before the title screen, even though the launcher opens"
+        cause: "Routing to Square Enix / GitHub CDN from some ISPs is unstable under Proton networking, causing patch and login timeouts."
+        fix:
+          type: info
+          value: "In XIVLauncher, retry patching (a VPN routed to Japan, or Cloudflare WARP, or a DNS switch help) until you reach the title screen. This is a network-route workaround, not a client fix."
+          verified: false
+          source: "goatcorp.github.io/faq/xl_troubleshooting.html (retrieved 2026-07-15)"
+
+      - symptom: "Game runs but feels choppy or has noticeable input lag in DX11 mode"
+        cause: "Default DXVK frame latency and lack of CPU scheduling optimization leave performance on the table for this DX11 MMO."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/39210 (retrieved 2026-07-15)"
+
+
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
 # =====================================================================
