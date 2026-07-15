@@ -880,7 +880,7 @@ class CommandCenter(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_title("Gaming Command Center")
-        self.set_default_size(960, 680)
+        self.set_default_size(1180, 760)
         self.topo = CPUTopology()
         self.gpu = GPUInfo()
         self.benching = False
@@ -910,7 +910,7 @@ class CommandCenter(Adw.ApplicationWindow):
         window { background: #13141c; }
 
         /* === Sidebar === */
-        .sidebar { background: #16161e; }
+        .sidebar { background: #16161e; min-width: 206px; }
         .sidebar-item {
             padding: 10px 12px;
             border-radius: 8px;
@@ -1251,8 +1251,9 @@ class CommandCenter(Adw.ApplicationWindow):
         main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         outer.append(main_box)
 
-        # Sidebar
+        # Sidebar — fixed width so switching pages never reflows it
         sidebar = self._build_sidebar()
+        sidebar.set_hexpand(False)
         main_box.append(sidebar)
 
         # Vertical separator
@@ -1266,9 +1267,12 @@ class CommandCenter(Adw.ApplicationWindow):
         # Shared header: page title/subtitle (left) + Game Mode toggle (right)
         content_box.append(self._build_shared_header())
 
-        # ViewStack for page switching
+        # ViewStack for page switching. Homogeneous width so all pages request
+        # the same width — switching never resizes the window or the sidebar.
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
+        self.view_stack.set_hexpand(True)
+        self.view_stack.set_hhomogeneous(True)
 
         # Dashboard page
         self.view_stack.add_titled(
