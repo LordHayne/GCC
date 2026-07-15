@@ -344,18 +344,24 @@ def scan_system():
 
     # 13. SATA Link Power
     def check_sata():
+        # Check EVERY host, not just the first — a machine can have one host on a
+        # sane policy and others still on max_performance (wastes power).
         try:
-            for i in range(4):
-                path = f"/sys/class/scsi_host/host{i}/link_power_management_policy"
-                if os.path.exists(path):
-                    with open(path) as f:
-                        policy = f.read().strip()
-                    if policy == "max_performance":
-                        return "warning", f"SATA Link Power: {policy} (wastes power)", "Set to med_power_with_dipm"
-                    return "ok", f"SATA Link Power: {policy} ✅", ""
-            return "info", "No SATA controllers found", ""
-        except:
+            hosts = []
+            for name in sorted(os.listdir("/sys/class/scsi_host")):
+                pol = _read1(f"/sys/class/scsi_host/{name}/link_power_management_policy")
+                if pol is not None:
+                    hosts.append((name, pol))
+        except OSError:
             return "info", "Could not check SATA", ""
+        if not hosts:
+            return "info", "No SATA controllers found", ""
+        bad = [n for n, pol in hosts if pol == "max_performance"]
+        if bad:
+            return ("warning",
+                    f"{len(bad)}/{len(hosts)} host(s) on max_performance (wastes power)",
+                    "Set to med_power_with_dipm")
+        return "ok", f"SATA Link Power optimised on all {len(hosts)} host(s) ✅", ""
     checks.append(SystemCheck("SATA Link Power", check_sata))
 
     # 14. Audio Power Save
