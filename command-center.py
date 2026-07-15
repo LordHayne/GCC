@@ -2369,6 +2369,17 @@ class CommandCenter(Adw.ApplicationWindow):
         self._settings_row(card, "Only show verified fixes",
                            "Hide untested community suggestions on the Games page.", sw)
 
+        # --- POWER SAVING ---
+        card = self._settings_group(box, "POWER SAVING")
+        psw = Gtk.Switch(); psw.set_valign(Gtk.Align.CENTER)
+        psw.set_active(self._power_saving_active())
+        psw.connect("notify::active", lambda s, _p: self._on_power_saving(s.get_active()))
+        self.power_switch = psw
+        self._settings_row(card, "Power saving mode",
+                           "Not a gaming setting — the opposite. Sleeps the audio codec, "
+                           "lowers SATA link power and sets the power profile to save "
+                           "energy. Turn it OFF for gaming (keeps audio pop-free).", psw)
+
         # --- GAME MODE ---
         if self.topo.ccd_count() > 1:
             card = self._settings_group(box, "GAME MODE")
@@ -2570,6 +2581,50 @@ class CommandCenter(Adw.ApplicationWindow):
         if hasattr(self, "games_page"):
             self.games_page.rescan()
 
+    # ---------- Power Saving toggle (runtime, opt-in — NOT for gaming) ----------
+    def _power_saving_active(self):
+        """Best-effort current state — the audio codec sleep is the clearest tell."""
+        try:
+            with open("/sys/module/snd_hda_intel/parameters/power_save") as f:
+                return f.read().strip() == "1"
+        except OSError:
+            return False
+
+    @staticmethod
+    def _set_power_profile(profile):
+        """Ask power-profiles-daemon for a profile (that's where the governor is
+        managed on modern systems). No-op if PPD isn't installed."""
+        if shutil.which("powerprofilesctl"):
+            try:
+                subprocess.run(["powerprofilesctl", "set", profile],
+                               capture_output=True, text=True, timeout=5)
+            except Exception:
+                pass
+
+    def _apply_power_saving(self, on):
+        """Apply/undo power saving synchronously (callers run it in a thread)."""
+        if on:   # save power: codec sleeps, SATA idles, profile → power-saver
+            CCDController.helper("audio", "DONE_AUDIO", "")
+            CCDController.helper("sata", "DONE_SATA", "")
+            self._set_power_profile("power-saver")
+        else:    # gaming-friendly: no codec sleep (no pops), full links, balanced
+            CCDController.helper("audio-off", "DONE_AUDIO", "")
+            CCDController.helper("sata-off", "DONE_SATA", "")
+            self._set_power_profile("balanced")
+
+    def _on_power_saving(self, on):
+        if getattr(self, "_power_sync", False):
+            return   # programmatic switch update (e.g. from Game Mode) — no re-apply
+        threading.Thread(target=lambda: self._apply_power_saving(on), daemon=True).start()
+
+    def _sync_power_switch(self, on):
+        """Reflect state in the Settings switch without re-triggering the handler."""
+        sw = getattr(self, "power_switch", None)
+        if sw is not None and sw.get_active() != on:
+            self._power_sync = True
+            sw.set_active(on)
+            self._power_sync = False
+
     def _on_keep_ccd(self, ccd):
         # None -> Auto: drop the manual override so the benchmark winner applies.
         save_config({"keep_ccd_manual": ccd if ccd is not None else -1})
@@ -2761,7 +2816,7 @@ class CommandCenter(Adw.ApplicationWindow):
             "freq0": topo.get_cpu_freq(0),
             "avg_clock": sum(all_freqs) // len(all_freqs) if all_freqs else 0,
             "temp": topo.get_temp(),  # slow: `sensors`
-            "gov": topo.get_governor(),
+            "gov": self._cpu_perf_label(),
             "game_mode": topo.game_mode_active(),
             "parked": topo.get_parked_ccds(),
             "keep": topo.keep_ccd(),
@@ -2771,6 +2826,25 @@ class CommandCenter(Adw.ApplicationWindow):
             "ram_used": ram_used,
             "ram_total": ram_total,
         }
+
+    @staticmethod
+    def _cpu_perf_label():
+        """CPU performance state for the sidebar. On EPP drivers (amd-pstate-epp,
+        intel_pstate) the scaling_governor name stays 'powersave' in active mode
+        and is misleading — the EPP is what actually sets the balance, so show
+        that instead (e.g. 'performance', 'balance performance')."""
+        def r(p):
+            try:
+                with open(p) as f:
+                    return f.read().strip()
+            except OSError:
+                return None
+        driver = r("/sys/devices/system/cpu/cpu0/cpufreq/scaling_driver") or ""
+        if "epp" in driver or driver == "intel_pstate":
+            epp = r("/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference")
+            if epp:
+                return epp.replace("_", " ")
+        return r("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") or "?"
 
     @staticmethod
     def _frac(x, hi):
@@ -2820,7 +2894,12 @@ class CommandCenter(Adw.ApplicationWindow):
             self.hero_mode.set_css_classes(["hero-mode"])
             self.hero_dot.set_css_classes(["hero-dot"])
             self.side_hero_set(False)
-        self.status_footer_lbl.set_label(f"governor: {d['gov']}")
+        self.status_footer_lbl.set_label(f"cpu: {d['gov']}")
+
+        # Power Saving and Game Mode are opposites — lock the Power Saving switch
+        # while Game Mode is on (Game Mode already forced power saving off).
+        if hasattr(self, "power_switch"):
+            self.power_switch.set_sensitive(not gm_on)
 
         # Game Mode needs something to park — a single-CCD CPU has nothing.
         single_ccd = d["ccd_count"] < 2
@@ -2927,8 +3006,18 @@ class CommandCenter(Adw.ApplicationWindow):
         def run_in_thread():
             if active:
                 ok, err = CCDController.unpark_all()
+                if ok:
+                    self._set_power_profile("balanced")   # back to the normal profile
                 msg = "All cores restored" if ok else err
             else:
+                # Everything for gaming, in this ORDER: set the CPU performance
+                # profile FIRST while all cores are still online — power-profiles-
+                # daemon writes every cpufreq policy and fails (EBUSY) on a core we
+                # parked — then undo power saving and park the weaker CCD last.
+                self._set_power_profile("performance")
+                CCDController.helper("audio-off", "DONE_AUDIO", "")
+                CCDController.helper("sata-off", "DONE_SATA", "")
+                GLib.idle_add(lambda: self._sync_power_switch(False))
                 ok, err = CCDController.park(plan)
                 msg = (f"Game Mode on — CCD{keep} kept, {len(plan)} threads parked"
                        if ok else err)

@@ -147,10 +147,22 @@ case "${1:-}" in
         ;;
 
     sata)
+        # Power saving: let SATA links idle down.
         found=0
         for dev in /sys/class/scsi_host/host*/link_power_management_policy; do
             [ -f "$dev" ] || continue
             echo med_power_with_dipm > "$dev" 2>/dev/null && found=1
+        done
+        [ "$found" -eq 1 ] || die "no SATA hosts found"
+        echo "DONE_SATA"
+        ;;
+
+    sata-off)
+        # Full link power — the non-power-saving default.
+        found=0
+        for dev in /sys/class/scsi_host/host*/link_power_management_policy; do
+            [ -f "$dev" ] || continue
+            echo max_performance > "$dev" 2>/dev/null && found=1
         done
         [ "$found" -eq 1 ] || die "no SATA hosts found"
         echo "DONE_SATA"
