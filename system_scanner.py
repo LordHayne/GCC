@@ -122,7 +122,8 @@ def scan_system():
 
     # 1. GameMode installed?
     def check_gamemode():
-        if shutil.which("game-performance"):
+        # game-performance is GameMode ≥ 1.8; gamemoderun covers older versions.
+        if shutil.which("game-performance") or shutil.which("gamemoderun"):
             return "ok", "GameMode installed ✅", ""
         return "warning", "GameMode NOT installed", "pacman -S gamemode"
     checks.append(SystemCheck("GameMode", check_gamemode))
@@ -136,14 +137,19 @@ def scan_system():
 
     # 3. GE-Proton installed?
     def check_geproton():
-        proton_dir = os.path.expanduser("~/.steam/root/compatibilitytools.d")
-        if os.path.exists(proton_dir):
-            versions = os.listdir(proton_dir)
-            ge_versions = [v for v in versions if "GE-Proton" in v]
-            if ge_versions:
-                return "ok", f"GE-Proton installed ({ge_versions[0]}) ✅", ""
-            return "warning", "GE-Proton NOT installed", "Download GE-Proton from GitHub and extract to ~/.steam/root/compatibilitytools.d/"
-        return "warning", "GE-Proton NOT installed", "Download GE-Proton from GitHub"
+        # Cover native Steam (~/.steam, ~/.local/share/Steam) and Flatpak Steam.
+        dirs = ("~/.steam/root/compatibilitytools.d",
+                "~/.local/share/Steam/compatibilitytools.d",
+                "~/.var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d")
+        for d in dirs:
+            try:
+                ge = [v for v in os.listdir(os.path.expanduser(d)) if "GE-Proton" in v]
+            except OSError:
+                continue
+            if ge:
+                return "ok", f"GE-Proton installed ({sorted(ge)[-1]}) ✅", ""
+        return ("warning", "GE-Proton NOT installed",
+                "Download GE-Proton from GitHub → extract to ~/.steam/root/compatibilitytools.d/")
     checks.append(SystemCheck("GE-Proton", check_geproton))
 
     # === CPU ===
@@ -193,13 +199,15 @@ def scan_system():
             names = ", ".join(f"CCD{c}" for c in parked)
             return "ok", f"{count} CCDs — Game Mode ACTIVE ({names} parked) ✅", ""
 
+        # Game Mode OFF is the normal desktop state, not a problem — parking a
+        # CCD permanently would cripple everything but the game. So this is info,
+        # not a warning, and it's toggled on the Dashboard, not "fixed" here.
         keep = topo.keep_ccd()
-        park = topo.park_plan(keep)
-        return ("warning",
-                f"{count} CCDs detected — Game Mode not active",
-                f"Park CPUs {format_cpu_list(park)} so CCD{keep} "
-                f"({topo.core_count(keep)} cores) gets exclusive cache and boost headroom")
-    checks.append(SystemCheck("CCD / Game Mode", check_ccd))
+        return ("info",
+                f"{count} CCDs — Game Mode available: parks the weaker CCD so CCD{keep} "
+                f"({topo.core_count(keep)} cores) gets exclusive cache. Toggle it for gaming.",
+                "")
+    checks.append(SystemCheck("CCD / Game Mode", check_ccd, info_only=True))
 
     # === GPU ===
 
@@ -364,16 +372,25 @@ def scan_system():
 
     # 15. Monitor refresh rate
     def check_refresh():
-        try:
-            r = subprocess.run(["xrandr" if os.environ.get("DISPLAY") else "wlr-randr"],
-                              capture_output=True, text=True, timeout=3)
-            if "144" in r.stdout or "120" in r.stdout or "165" in r.stdout:
-                return "ok", "High-refresh monitor detected ✅", ""
-            if r.stdout:
-                return "info", "Monitor detected", ""
-        except:
-            pass
-        return "info", "Could not check monitor", ""
+        # Use whichever randr tool the session provides: cosmic-randr (COSMIC),
+        # wlr-randr (wlroots) or xrandr (X11). Parse the highest refresh the
+        # panel offers — enough to spot a high-refresh monitor.
+        for tool in ("cosmic-randr", "wlr-randr", "xrandr"):
+            if not shutil.which(tool):
+                continue
+            try:
+                args = [tool, "list"] if tool == "cosmic-randr" else [tool]
+                out = subprocess.run(args, capture_output=True, text=True, timeout=3).stdout or ""
+            except Exception:
+                continue
+            hz = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*Hz", out)]        # cosmic/wlr
+            hz += [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\*", out)]          # xrandr active mode
+            if hz:
+                top = round(max(hz))
+                if top >= 100:
+                    return "ok", f"High-refresh monitor detected ({top} Hz) ✅", ""
+                return "info", f"Monitor refresh {top} Hz (60 Hz class)", ""
+        return "info", "Could not read monitor refresh in this session", ""
     checks.append(SystemCheck("Monitor", check_refresh))
 
     # === Proton / Vulkan ===
