@@ -21,7 +21,7 @@ jobs:
   appimage:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build the AppImage
         run: |
@@ -29,7 +29,7 @@ jobs:
           SRC="$PWD" OUT="$PWD/dist" bash appimage/build-in-container.sh
 
       - name: Upload as a workflow artifact (every run)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Gaming_Command_Center-x86_64.AppImage
           path: dist/*.AppImage
@@ -37,7 +37,7 @@ jobs:
 
       - name: Attach to the Release (tag pushes only)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.AppImage
           fail_on_unmatched_files: true
