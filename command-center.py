@@ -168,31 +168,40 @@ class CCDController:
 
 
 class GPUController:
+    # nvidia-settings ALWAYS exits 0, even when it prints "ERROR: ... permission
+    # for operation" and changes nothing (common for OC over XWayland / without
+    # the right permission). So the exit code is useless — parse stderr instead.
+    @staticmethod
+    def _apply(attr, value):
+        """Returns (ok, message). Never trusts nvidia-settings' exit code."""
+        try:
+            r = subprocess.run(["nvidia-settings", "-a", f"{attr}={value}"],
+                               capture_output=True, text=True, timeout=5)
+        except FileNotFoundError:
+            return False, "nvidia-settings not installed"
+        except (OSError, subprocess.SubprocessError):
+            return False, "Could not run nvidia-settings"
+        err = (r.stderr or "")
+        if "ERROR" in err or "does not have permission" in err:
+            if "permission" in err:
+                return False, ("Permission denied — GPU overclocking needs X11; "
+                               "nvidia-settings can't set it over Wayland/XWayland")
+            line = next((l.strip() for l in err.splitlines()
+                         if l.strip().startswith("ERROR")), "nvidia-settings error")
+            return False, line.replace("ERROR: ", "")
+        return True, ""
+
     @staticmethod
     def set_gr_offset(offset):
-        try:
-            subprocess.run(["nvidia-settings", "-a",
-                           f"GPUGraphicsClockOffsetAllPerformanceLevels={offset}"],
-                          capture_output=True, text=True, timeout=3)
-            return True
-        except: return False
+        return GPUController._apply("GPUGraphicsClockOffsetAllPerformanceLevels", offset)
 
     @staticmethod
     def set_mem_offset(offset):
-        try:
-            subprocess.run(["nvidia-settings", "-a",
-                           f"GPUMemoryTransferRateOffsetAllPerformanceLevels={offset}"],
-                          capture_output=True, text=True, timeout=3)
-            return True
-        except: return False
+        return GPUController._apply("GPUMemoryTransferRateOffsetAllPerformanceLevels", offset)
 
     @staticmethod
     def set_powermizer(mode):
-        try:
-            subprocess.run(["nvidia-settings", "-a", f"GPUPowerMizerMode={mode}"],
-                          capture_output=True, text=True, timeout=3)
-            return True
-        except: return False
+        return GPUController._apply("GPUPowerMizerMode", mode)
 
 
 # ============================================================
@@ -2641,12 +2650,13 @@ class CommandCenter(Adw.ApplicationWindow):
         btn.set_sensitive(False)
 
         def apply_in_thread():
-            ok = True
+            ok, err = True, ""
             if gr_off != self.gpu.gr_offset:
-                ok = GPUController.set_gr_offset(gr_off)
-            if mem_off != self.gpu.mem_offset:
-                ok = ok and GPUController.set_mem_offset(mem_off)
-            GPUController.set_powermizer(pm)
+                ok, err = GPUController.set_gr_offset(gr_off)
+            if ok and mem_off != self.gpu.mem_offset:
+                ok, err = GPUController.set_mem_offset(mem_off)
+            if ok:
+                ok, err = GPUController.set_powermizer(pm)
             self.gpu.update_oc()  # read back what the driver actually accepted
 
             def update_ui():
@@ -2654,12 +2664,12 @@ class CommandCenter(Adw.ApplicationWindow):
                 self._oc_touched = False  # let the monitor mirror the driver again
                 if ok:
                     self.oc_status_lbl.set_markup(
-                        f"<span color='#9ece6a'>Core {self.gpu.gr_offset:+d} MHz | "
+                        f"<span color='#9ece6a'>Applied — Core {self.gpu.gr_offset:+d} MHz | "
                         f"VRAM {self.gpu.mem_offset:+d} MHz | "
                         f"PM: {['Adaptive','Max Perf','Auto'][pm]}</span>")
                 else:
                     self.oc_status_lbl.set_markup(
-                        "<span color='#f7768e'>Error - Coolbits enabled?</span>")
+                        f"<span color='#f7768e'>{GLib.markup_escape_text(err)}</span>")
                 self.refresh()
                 return False
 
