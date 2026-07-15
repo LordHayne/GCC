@@ -54,8 +54,13 @@ sudo gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
 echo "  ✅ App icon installed"
 
 # 4. Desktop file → applications
+# The basename MUST equal the app-id (Adw.Application application_id), otherwise
+# Wayland compositors (COSMIC, GNOME, …) can't map the window to this entry and
+# fall back to a generic/blank taskbar icon. StartupWMClass covers X11 as well.
 sudo mkdir -p /usr/share/applications
-sudo tee /usr/share/applications/gaming-command-center.desktop > /dev/null << 'DESKTOP'
+# Drop the old mismatched name from earlier installs so we don't leave a duplicate.
+sudo rm -f /usr/share/applications/gaming-command-center.desktop
+sudo tee /usr/share/applications/com.gaming.commandcenter.desktop > /dev/null << 'DESKTOP'
 [Desktop Entry]
 Name=Gaming Command Center
 Comment=Linux gaming optimization — CPU CCD parking, GPU overclocking, system setup wizard
@@ -63,12 +68,13 @@ Exec=python3 INSTALLDIR/command-center.py
 Icon=gaming-command-center
 Terminal=false
 Type=Application
+StartupWMClass=com.gaming.commandcenter
 Categories=Game;System;Utility;
 Keywords=gaming;ryzen;cpu;gpu;nvidia;overclock;ccd;gamemode;linux;
 DESKTOP
 
 # Fix the Exec path in the desktop file
-sudo sed -i "s|INSTALLDIR|$SCRIPT_DIR|" /usr/share/applications/gaming-command-center.desktop
+sudo sed -i "s|INSTALLDIR|$SCRIPT_DIR|" /usr/share/applications/com.gaming.commandcenter.desktop
 echo "  ✅ Desktop launcher installed"
 
 # 5. Update caches
