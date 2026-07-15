@@ -45,6 +45,10 @@ Linux gaming is growing fast (Steam Deck, Proton, Wayland) — but when somethin
 
 > On single-CCD or Intel CPUs, Game Mode is hidden and the rest of the app works normally.
 
+<div align="center">
+  <img src="assets/screenshots/benchmark.png" alt="CCD Benchmark — per-thread single-core boost clocks with the best-silicon CCD marked" width="820">
+</div>
+
 ### 📡 GPU — Live Monitoring
 - Core clock, memory clock, power draw, temperature, VRAM usage and P-state at a glance
 - Works on any GPU for monitoring; NVIDIA gets the full metric set via `nvidia-smi`
@@ -53,6 +57,10 @@ Linux gaming is growing fast (Steam Deck, Proton, Wayland) — but when somethin
 - **System scan** — 15+ checks for common Linux gaming issues
 - **Apply-Fix buttons** — one-click fixes for governor, audio power-save, SATA, modprobe, ReBAR and more
 - Covers NVIDIA and AMD GPUs, any CPU, Wayland and X11
+
+<div align="center">
+  <img src="assets/screenshots/system-doctor.png" alt="System Doctor — a system scan with warnings and one-click fixes" width="820">
+</div>
 
 ### 📋 Games — Per-Game Fixes
 - **Detects your Steam games** and matches them against a community fix database ([`games.yaml`](games.yaml))
@@ -64,14 +72,6 @@ Linux gaming is growing fast (Steam Deck, Proton, Wayland) — but when somethin
 <div align="center">
   <img src="assets/screenshots/games.png" alt="Games page — Steam library scanned, per-game fixes with cover art, one-click Apply Fix" width="820">
 </div>
-
-<!-- SCREENSHOT SLOT: drop system-doctor.png and benchmark.png into assets/screenshots/
-     and uncomment the row below once you have the shots.
-<div align="center">
-  <img src="assets/screenshots/system-doctor.png" alt="System Doctor scan" width="405">
-  <img src="assets/screenshots/benchmark.png"      alt="CCD benchmark"      width="405">
-</div>
--->
 
 ## Install
 
