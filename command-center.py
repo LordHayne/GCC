@@ -803,6 +803,11 @@ class GamesPage(Gtk.Box):
         self.subtitle.set_ellipsize(3)  # PANGO_ELLIPSIZE_END if too narrow
         header.append(self.subtitle)
         spacer = Gtk.Box(); spacer.set_hexpand(True); header.append(spacer)
+        self.search = Gtk.SearchEntry()
+        self.search.set_placeholder_text("Search games…")
+        self.search.set_max_width_chars(22)
+        self.search.connect("search-changed", self._on_search)
+        header.append(self.search)
         self.rescan_btn = Gtk.Button(label="Rescan")
         self.rescan_btn.add_css_class("btn-apply")
         self.rescan_btn.connect("clicked", lambda *_: self.rescan())
@@ -820,6 +825,8 @@ class GamesPage(Gtk.Box):
         scroll.set_child(self.list_box)
         self.append(scroll)
 
+        self._search_text = ""
+        self.game_cards = []   # (search_key, card, reveal_fn) for the search filter
         self.rescan()
         self._check_db_update()
 
@@ -886,6 +893,7 @@ class GamesPage(Gtk.Box):
 
     def rescan(self):
         self._clear()
+        self.game_cards = []
         # The community tally (worked/didn't counts per fix). Read once from the
         # local cache and reused for every card; the network refresh happens in
         # the background (_check_db_update).
@@ -917,10 +925,14 @@ class GamesPage(Gtk.Box):
                 continue
             game = self.db.get(appid)
             disp_name = (game.name if game else name) or f"App {appid}"
-            issues = [i for i in (game.issues if game else [])
-                      if i.matches_system(gpu, session, cpu)
-                      and (not only_verified or i.fix.verified)]
-            rows.append((appid, disp_name, issues, game is not None))
+            matching = [i for i in (game.issues if game else [])
+                        if i.matches_system(gpu, session, cpu)]
+            issues = [i for i in matching if not only_verified or i.fix.verified]
+            # Fixes we found but hid because "only verified" is on — so the card
+            # can say so honestly instead of a misleading "no known issues".
+            hidden = len(matching) - len(issues)
+            aliases = game.aliases if game else []
+            rows.append((appid, disp_name, issues, game is not None, hidden, aliases))
 
         # Games with fixes first, then alphabetical.
         rows.sort(key=lambda r: (not r[2], r[1].lower()))
@@ -935,8 +947,17 @@ class GamesPage(Gtk.Box):
                         "rescan.")
             return
 
-        for appid, name, issues, in_db in rows:
-            self.list_box.append(self._build_game_card(appid, name, issues, in_db))
+        for appid, name, issues, in_db, hidden, aliases in rows:
+            card, reveal = self._build_game_card(appid, name, issues, in_db, hidden)
+            self.list_box.append(card)
+            # Full-text search key: name + aliases + every visible fix's text, so
+            # typing e.g. "multiplayer" surfaces games whose fix mentions it.
+            parts = [name, " ".join(aliases)]
+            for i in issues:
+                parts.append(f"{i.symptom} {i.cause} {i.fix.value} "
+                             f"{i.fix.type} {getattr(i.fix, 'content', '')}")
+            self.game_cards.append((" ".join(parts).lower(), card, reveal))
+        self._apply_search()
 
     def _empty(self, text):
         lbl = Gtk.Label(label=text)
@@ -945,6 +966,21 @@ class GamesPage(Gtk.Box):
         lbl.set_xalign(0)
         lbl.set_margin_top(20)
         self.list_box.append(lbl)
+
+    def _on_search(self, entry):
+        self._search_text = entry.get_text().strip().lower()
+        self._apply_search()
+
+    def _apply_search(self):
+        """Filter the card list by the full-text key. A non-empty query hides
+        non-matches and auto-expands matches so the reason for the match (the fix
+        text) is visible; clearing the box shows everything collapsed again."""
+        q = getattr(self, "_search_text", "")
+        for key, card, reveal in getattr(self, "game_cards", []):
+            match = q in key
+            card.set_visible(match or not q)
+            if reveal:
+                reveal(bool(q) and match)
 
     TILE_PALETTE = [
         ("#e0af68", "rgba(224,175,104,0.12)"), ("#7aa2f7", "rgba(122,162,247,0.12)"),
@@ -959,7 +995,7 @@ class GamesPage(Gtk.Box):
             return (words[0][0] + words[1][0]).upper()
         return name[:2].upper()
 
-    def _build_game_card(self, appid, name, issues, in_db):
+    def _build_game_card(self, appid, name, issues, in_db, hidden=0):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         card.add_css_class("v2-card")
         if issues:
@@ -997,9 +1033,14 @@ class GamesPage(Gtk.Box):
         nm = Gtk.Label(label=name); nm.add_css_class("game-title"); nm.set_xalign(0)
         nm.set_wrap(False); nm.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
         namecol.append(nm)
-        meta = Gtk.Label(
-            label=(f"{len(issues)} fix{'es' if len(issues) != 1 else ''} available"
-                   if issues else "no known issues"))
+        if issues:
+            meta_txt = f"{len(issues)} fix{'es' if len(issues) != 1 else ''} available"
+        elif hidden:
+            meta_txt = (f"{hidden} untested fix{'es' if hidden != 1 else ''} hidden "
+                        "— turn off 'verified only' in Settings to see them")
+        else:
+            meta_txt = "no known issues"
+        meta = Gtk.Label(label=meta_txt)
         meta.add_css_class("game-meta"); meta.set_xalign(0)
         meta.set_tooltip_text(f"appid {appid}")  # kept for contributors, out of the way
         namecol.append(meta)
@@ -1012,6 +1053,7 @@ class GamesPage(Gtk.Box):
         # launch options we set, so this really does exercise the fix.
         play = Gtk.Button(label="▶ Play"); play.add_css_class("btn-play")
         play.set_valign(Gtk.Align.CENTER)
+        play.set_size_request(84, -1)   # fixed column so Play/pill/tier line up
         play.set_tooltip_text("Launch this game through Steam")
         play.connect("clicked", self._on_play, appid)
         title_row.append(play)
@@ -1021,21 +1063,55 @@ class GamesPage(Gtk.Box):
         if issues:
             pill.set_label(f"● {len(issues)} fix{'es' if len(issues) != 1 else ''}")
             pill.add_css_class("fix-pill")
+        elif hidden:
+            pill.set_label(f"○ {hidden} untested")
+            pill.add_css_class("warn-pill")
         else:
             pill.set_label("✓ all good")
             pill.add_css_class("ok-pill")
+        pill.set_size_request(94, -1); pill.set_xalign(0.5)   # fixed column
         title_row.append(pill)
 
         tier_lbl = Gtk.Label(label=""); tier_lbl.add_css_class("game-tier")
         tier_lbl.set_valign(Gtk.Align.CENTER)
+        tier_lbl.set_size_request(86, -1); tier_lbl.set_xalign(0.5)  # reserved column
         title_row.append(tier_lbl)
-        card.append(title_row)
 
-        for issue in issues:
-            card.append(self._build_issue_row(appid, name, issue))
+        # Collapsed by default — a long library is unreadable if every card shows
+        # all its fixes at once. The header row toggles a revealer with the fixes.
+        reveal_fn = None
+        if issues:
+            chevron = Gtk.Label(label="▸"); chevron.add_css_class("game-chevron")
+            chevron.set_valign(Gtk.Align.CENTER)
+            title_row.append(chevron)
+            card.append(title_row)
+
+            revealer = Gtk.Revealer()
+            revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            body.set_margin_top(4)
+            for issue in issues:
+                body.append(self._build_issue_row(appid, name, issue))
+            revealer.set_child(body)
+            card.append(revealer)
+
+            def _set_expanded(show, _rev=revealer, _chev=chevron):
+                _rev.set_reveal_child(show)
+                _chev.set_label("▾" if show else "▸")
+            reveal_fn = _set_expanded
+
+            gesture = Gtk.GestureClick()
+            gesture.connect("released", lambda *_: _set_expanded(not revealer.get_reveal_child()))
+            title_row.add_controller(gesture)
+            try:
+                title_row.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+            except Exception:
+                pass
+        else:
+            card.append(title_row)
 
         self._load_tier_async(appid, tier_lbl)
-        return card
+        return card, reveal_fn
 
     def _on_play(self, btn, appid):
         """Start the game via Steam's URL handler. Steam applies the launch
@@ -1733,6 +1809,8 @@ class CommandCenter(Adw.ApplicationWindow):
             border-radius: 20px; padding: 3px 12px; font-size: 11px; font-weight: 700;
         }
         .ok-pill { color: #9ece6a; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
+        .warn-pill { color: #e0af68; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
+        .game-chevron { color: #7f849c; font-size: 13px; padding: 0 2px 0 6px; }
         .v2-card-fix {
             border-color: rgba(122,162,247,0.55); background: #191b29;
             box-shadow: inset 3px 0 0 0 #7aa2f7, 0 4px 20px rgba(122,162,247,0.12);
