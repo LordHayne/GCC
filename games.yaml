@@ -93,14 +93,6 @@ games:
           verified: false
           source: "linuxlookup.com/howto/howto_play_cyberpunk_2077_linux_steam (retrieved 2026-07-15)"
 
-      - symptom: "Mods (RED4ext, Cyber Engine Tweaks, REDmod) silently fail to load under Proton"
-        cause: "Proton does not inject the winmm/version proxy DLLs that the RED4ext/CET loaders hook into; overriding them to native lets the loaders run."
-        fix:
-          type: launch_option
-          value: "WINEDLLOVERRIDES=\"winmm,version=n,b\" %command%"
-          verified: false
-          source: "wiki.redmodding.org/.../modding-on-linux (retrieved 2026-07-15)"
-
       - symptom: "Unsure how to enable DLSS / ray reconstruction on NVIDIA under Proton"
         cause: "DLSS relies on NVIDIA NVAPI, which modern Proton exposes automatically through the bundled DXVK-NVAPI."
         when: { gpu: nvidia }
@@ -177,14 +169,6 @@ games:
           verified: false
           source: "protondb.com/app/1245620 (retrieved 2026-07-15)"
 
-      - symptom: "Frame rate hard-locked to 60 FPS; want a higher cap or ultrawide (solo / Seamless Co-op only)"
-        cause: "The engine hard-locks physics/animation to 60 FPS. er-patcher live-patches the running executable to raise the cap and add ultrawide. It disables EAC, so it is for solo/Seamless play, not official online."
-        fix:
-          type: launch_option
-          value: "python er-patcher --rate 144 -uvca -- %command%"
-          verified: false
-          source: "github.com/gurrgur/er-patcher (retrieved 2026-07-15)"
-
       - symptom: "Noticeable frame-drop/judder while connected to a co-op lobby, even at 60 FPS"
         cause: "Being in a co-op session adds a small persistent frame-rate drop. Uncapping the engine and re-capping a few FPS above the monitor refresh masks the judder."
         fix:
@@ -192,14 +176,6 @@ games:
           value: "Raise the internal cap with a frame-unlock patch (e.g. er-patcher --rate), then re-limit with MangoHud a few FPS ABOVE your refresh rate, e.g. `MANGOHUD_CONFIG=fps_limit=64 mangohud %command%` on a 60Hz panel. Frame-unlock patches disable EAC, so this is for solo/Seamless play, not official online."
           verified: false
           source: "protondb.com/app/1245620 (retrieved 2026-07-15)"
-
-      - symptom: "Want Seamless Co-op (drop-in co-op without fog walls/summon signs, incl. Shadow of the Erdtree) on Linux"
-        cause: "Seamless Co-op replaces the EAC launcher with its own and runs private password-matched sessions over Steam networking, separate from FromSoftware's servers. EAC must be off, so official online is unavailable while installed."
-        fix:
-          type: info
-          value: "Install the ER Seamless Co-op mod into the game folder (the ERSC-Updater-Linux script auto-detects the install and swaps start_protected_game.exe for the mod launcher), then launch Elden Ring normally from Steam with no extra options - or add ersc_launcher.exe as a non-Steam game with Proton 8/9+ or recent GE-Proton. EAC is bypassed by design (no EAC splash = installed correctly), so official matchmaking is unavailable while active; all players need matching passwords in ersc_settings.ini."
-          verified: false
-          source: "ersc-docs.github.io/how-to-install-and-update (retrieved 2026-07-15)"
 
   - name: "Baldur's Gate 3"
     steam_id: 1086940
@@ -474,14 +450,6 @@ games:
           verified: false
           source: "gamingonlinux.com/2024/09/grand-theft-auto-v-gets-battleye-anti-cheat-breaks-online-play-on-steam-deck-linux (retrieved 2026-07-15)"
 
-      - symptom: "Story Mode won't launch with ScriptHookV / dinput8-based mods, or you want to skip the BattlEye prompt for single-player"
-        cause: "BattlEye's launcher gate and Wine's builtin dinput8 block ScriptHookV-style mod loaders; -nobattleye disables the anti-cheat for offline play and dinput8=n,b forces the native mod DLL to load. Safe for Story Mode only - never go online with this."
-        fix:
-          type: launch_option
-          value: "WINEDLLOVERRIDES=\"dinput8=n,b\" %command% -nobattleye"
-          verified: false
-          source: "support.rockstargames.com/articles/ocorZr1KpQE8WvoHE3gBG (retrieved 2026-07-15)"
-
       - symptom: "Graphical flicker/corruption in the Diamond Casino interior (and some UI surfaces) on AMD Radeon (RADV)"
         cause: "RADV Delta Color Compression (DCC) mishandles certain render targets in some scenes, producing flicker on AMD; disabling DCC is the standard Mesa mitigation for this class of bug."
         when: { gpu: amd }
@@ -547,14 +515,6 @@ games:
           value: "Do not force PROTON_USE_VKD3D. Choose DirectX 11 or DirectX 12 in the in-game Graphics options (DX11 is the safe default on NVIDIA) and turn Volumetric Lighting to Low/Off. On CachyOS you can wrap the game with the perf governor via 'game-performance %command%'."
           verified: false
           source: "github.com/ValveSoftware/Proton/issues/3795 (retrieved 2026-07-15)"
-
-      - symptom: "Crashes on launch or mods fail to load with Stracker's Loader / SharpPluginLoader"
-        cause: "DLL-loader mods are not auto-loaded by Wine the way they are on Windows. Install the runtime deps once with 'protontricks 582010 dotnetdesktop8 d3dcompiler_47', then override the loader DLLs so Wine loads native ucrtbase (SharpPluginLoader) and dinput8 (Stracker's Loader). For Stracker's Loader alone, dinput8=n,b is enough."
-        fix:
-          type: launch_option
-          value: "WINEDLLOVERRIDES=\"ucrtbase,dinput8=n,b\" %command%"
-          verified: false
-          source: "fexty12573.github.io/SharpPluginLoader/Install/Installation.html (retrieved 2026-07-15)"
 
       - symptom: "Shader-compilation stutter on the first playthrough or when entering new areas"
         cause: "First-time DXVK/vkd3d pipeline compilation causes brief hitches until the on-disk shader cache is built. This is normal and clears as you play."
@@ -648,14 +608,6 @@ games:
           verified: false
           source: "nvidia.com/en-us/geforce/news/witcher-3-wild-hunt-dlss-rtx-ray-tracing-free-update-out-now (retrieved 2026-07-15)"
 
-      - symptom: "Script Merger and The Witcher 3 Mod Manager tools don't detect the game or won't run"
-        cause: "These Windows utilities must run inside the same Proton prefix as the game; next-gen and classic mods are also not interchangeable."
-        fix:
-          type: info
-          value: "Run the mod tools through the same Proton prefix (add the .exe as a non-Steam game and force the same Proton), or use the CLI w3scriptmerge on Linux. Only install next-gen (4.0x) versions of mods."
-          verified: false
-          source: "github.com/apocalyptech/w3scriptmerge (retrieved 2026-07-15)"
-
       - symptom: "On a 21:9/ultrawide monitor cutscenes show black bars and the HUD is desynced"
         cause: "The next-gen build pillarboxes cutscenes and mis-scales the HUD at non-16:9 aspect ratios."
         fix:
@@ -676,42 +628,6 @@ games:
           verified: false
           source: "steamcommunity.com/app/377160/discussions/0/4634861275507099591 (retrieved 2026-07-15)"
 
-      - symptom: "F4SE installed but script-extender mods do nothing / MCM, Buffout, most major mods have no effect"
-        cause: "Launching Fallout4.exe or the normal Steam Play button never starts the script extender. F4SE only loads when f4se_loader.exe is the process that runs, so the game silently ignores it under Proton."
-        fix:
-          type: info
-          value: "Extract F4SE into the Fallout 4 folder, then make Steam run the loader: rename Fallout4Launcher.exe to Fallout4Launcher_bak.exe and rename f4se_loader.exe to Fallout4Launcher.exe, then launch normally through Steam. Verify in-game via the console (~) with getf4seversion. (With Mod Organizer 2 on Linux, instead add f4se_loader.exe as an MO2 executable and launch through MO2 - no renaming needed.)"
-          verified: false
-          source: "steamcommunity.com/sharedfiles/filedetails/?id=2522658777 (retrieved 2026-07-15)"
-
-      - symptom: "xSE PluginPreloader plugins (e.g. Buffout 4, Baka frameworks) fail to preload even though F4SE itself works"
-        cause: "The preloader ships as a proxy IpHlpAPI.dll; Wine loads its own builtin iphlpapi instead, so the injector never runs."
-        fix:
-          type: launch_option
-          value: "WINEDLLOVERRIDES=\"iphlpapi=n,b\" %command%"
-          verified: false
-          source: "nexusmods.com/fallout4/mods/33946 (retrieved 2026-07-15)"
-
-      - symptom: "Loose-file mods (textures, meshes, script mods) installed manually do not show up in game"
-        cause: "Archive invalidation is off by default; the engine only reads packed BA2s until Fallout4Custom.ini enables loose-file loading."
-        fix:
-          type: file
-          path: "~/.steam/steam/steamapps/compatdata/377160/pfx/drive_c/users/steamuser/Documents/My Games/Fallout4/Fallout4Custom.ini"
-          content: |
-            [Archive]
-            bInvalidateOlderFiles=1
-            sResourceDataDirsFinal=
-          verified: false
-          source: "nexusmods.com/fallout4/mods/59305 (retrieved 2026-07-15)"
-
-      - symptom: "Heavily-modded install crashes at the black screen just before the main menu"
-        cause: "Fallout 4's engine has a hard limit of ~256 'General' BA2 archives (and ~255 texture BA2s); exceeding it crashes on load. Easy to hit with large mod lists."
-        fix:
-          type: info
-          value: "Keep total BA2 count under the limit by merging/packing mods into fewer archives, or install an archive-limit-fix mod that raises the loadable-archive cap. Watch for BSRender/ImageSpace errors in crash logs when the texture-archive limit is the cause."
-          verified: false
-          source: "nexusmods.com/fallout4/articles/6251 (retrieved 2026-07-15)"
-
   - name: "The Elder Scrolls V: Skyrim Special Edition"
     steam_id: 489830
     aliases: ["skyrim", "skyrim se", "sse"]
@@ -724,38 +640,6 @@ games:
           verified: false
           source: "github.com/libsdl-org/SDL/issues/15293 (retrieved 2026-07-15)"
 
-      - symptom: "Mods that ship as dinput8.dll (ASI loaders, ENB helper hooks, some SKSE plugin wrappers) fail to load"
-        cause: "Proton does not treat a game-folder dinput8.dll as an overridable native DLL by default, so the mod's DLL is ignored. Forcing the native-then-builtin override makes Proton load it. NOTE: this override does NOT launch SKSE and does NOT fix audio - the AI entry conflated three separate issues."
-        fix:
-          type: launch_option
-          value: "WINEDLLOVERRIDES=\"dinput8=n,b\" %command%"
-          verified: false
-          source: "github.com/ValveSoftware/Proton/issues/7974 (retrieved 2026-07-15)"
-
-      - symptom: "No audio, or missing NPC voices / dialogue, in modded Skyrim SE under Proton"
-        cause: "Proton's built-in xaudio2 does not always play the game's XWM/voice audio correctly; forcing the native xaudio2_7 restores sound. This is distinct from the dinput8/SKSE issues."
-        fix:
-          type: launch_option
-          value: "WINEDLLOVERRIDES=\"xaudio2_7=n,b\" %command%"
-          verified: false
-          source: "steamcommunity.com/sharedfiles/filedetails/?id=3015864513 (retrieved 2026-07-15)"
-
-      - symptom: "SKSE-based mods do nothing / SKSE reports it is not running, even after setting the dinput8 override"
-        cause: "SKSE is only active if the game is started via skse64_loader.exe instead of SkyrimSELauncher.exe. The dinput8 override alone never starts SKSE. The sed launch method uses a shell pipe, so it is documented here as info rather than a launch_option."
-        fix:
-          type: info
-          value: "Method A (launch option, uses a shell so set it manually): echo \"%command%\" | sed 's/SkyrimSELauncher.exe/skse64_loader.exe/' | sh . Method B (no shell): in the game folder, copy skse64_loader.exe and rename the copy to SkyrimSELauncher.exe, then launch normally (do NOT rename it to Skyrim.exe - that breaks SKSE/LOOT detection). Confirm in-game with the console command 'getskseversion'."
-          verified: false
-          source: "steamcommunity.com/sharedfiles/filedetails/?id=3478819265 (retrieved 2026-07-15)"
-
-      - symptom: "SKSE plugins fail to load with 'Address Library needs to be updated' or version-mismatch errors"
-        cause: "Not a Linux issue but frequently misdiagnosed as one. Since the Dec-2023 next-gen update the game exe, SKSE64 build, and Address Library must all match. Mixing a next-gen game with old-format plugins makes SKSE plugins refuse to load."
-        fix:
-          type: info
-          value: "Match all three: game version, the SKSE64 build for that version, and the correct Address Library. If your mods target 1.5.97 or 1.6.640, downgrade the game to that build; otherwise use current SKSE + the 1.6.1170 Address Library. Also watch the BA2 archive limit - loading too many BA2s crashes at the main menu regardless of OS."
-          verified: false
-          source: "nexusmods.com/skyrimspecialedition/mods/32444 (retrieved 2026-07-15)"
-
       - symptom: "In fullscreen the game/UI spans or lands on the wrong monitor in a multi-monitor setup"
         cause: "Bethesda's fullscreen picks the wrong output on multi-head Wayland. Wrapping the game in gamescope confines it to one virtual output on the intended resolution; the gamescope wrapper prefix is shell-free."
         when: { session: wayland }
@@ -764,14 +648,6 @@ games:
           value: "gamescope -f -W 1920 -H 1080 -- %command%"
           verified: false
           source: "forum.level1techs.com/t/gamescope-goes-to-the-wrong-display/227970 (retrieved 2026-07-15)"
-
-      - symptom: "Multi-monitor cursor escapes to the other screen / prefer an in-game fix over gamescope"
-        cause: "SSE Display Tweaks provides borderless-fullscreen, keeps the window locked to the monitor it started on, and fixes the runaway-cursor glitch. It is a normal SKSE mod and works under Proton, avoiding gamescope's NVIDIA/Wayland quirks."
-        fix:
-          type: info
-          value: "Install SSE Display Tweaks (requires SKSE) and set Borderless=true plus the fixed-window-position option in SSEDisplayTweaks.ini. Use this instead of the gamescope wrapper if gamescope causes focus/cursor issues on your NVIDIA+Wayland setup."
-          verified: false
-          source: "nexusmods.com/skyrimspecialedition/mods/34705 (retrieved 2026-07-15)"
 
   - name: "No Man's Sky"
     steam_id: 275850
@@ -976,14 +852,6 @@ games:
           verified: false
           source: "wiki.cachyos.org/configuration/gaming (retrieved 2026-07-15)"
 
-      - symptom: "Game is hard-locked to 60 FPS; want an unlocked frame rate on a high-refresh display"
-        cause: "Sekiro caps itself at 60 FPS by design. It is single-player and ships only FromSoftware's internal anti-tamper thread (not online EAC/BattlEye), so frame-unlock mods are safe under Proton."
-        fix:
-          type: info
-          value: "For an unlocked frame rate on Linux use Lahvuun's native 'sekirofpsunlock' (drop the binary in the game folder, grant it ptrace with 'sudo setcap CAP_SYS_PTRACE=+eip sekirofpsunlock', then launch it alongside the game). No anti-cheat workaround is needed. Note the game's physics are frame-rate tied, so very high FPS can affect behavior; 60/120 caps are safest. Some traversal stutter between regions is inherent to the engine."
-          verified: false
-          source: "github.com/Lahvuun/sekirofpsunlock (retrieved 2026-07-15)"
-
   - name: "Terraria"
     steam_id: 105600
     aliases: ["terraria"]
@@ -1144,14 +1012,6 @@ games:
           value: "DXVK_ASYNC=1 %command%"
           verified: false
           source: "protondb.com/app/892970 (retrieved 2026-07-15)"
-
-      - symptom: "BepInEx mods (mod loader) do not load when running Valheim through Proton"
-        cause: "BepInEx hooks the game by overriding winhttp.dll; Proton must be told to prefer the native (BepInEx) DLL over the built-in one."
-        fix:
-          type: launch_option
-          value: "WINEDLLOVERRIDES=winhttp=n,b %command%"
-          verified: false
-          source: "docs.bepinex.dev/articles/advanced/proton_wine.html (retrieved 2026-07-15)"
 
       - symptom: "Corrupted/hung settings or won't-launch that persists after verifying files"
         cause: "Stale Unity player config/state under the user's home directory."
@@ -1426,14 +1286,6 @@ games:
           verified: false
           source: "protondb.com/app/218620 (retrieved 2026-07-15)"
 
-      - symptom: "SuperBLT mods (mod loader) do not load under Proton"
-        cause: "Proton does not load the wsock32 hook that SuperBLT injects unless the DLL override is set."
-        fix:
-          type: launch_option
-          value: "WINEDLLOVERRIDES=\"wsock32=n,b\" %command%"
-          verified: false
-          source: "superblt.znix.xyz (retrieved 2026-07-15)"
-
       - symptom: "Wrong resolution / black or letterboxed screen after first launch under Proton"
         cause: "PAYDAY 2 sometimes writes a bad resolution to its config on first Proton launch; fullscreen also caps resolution at 1080p for some setups."
         fix:
@@ -1441,14 +1293,6 @@ games:
           value: "Set the video mode to Windowed (Borderless) in-game (avoids the 1080p fullscreen cap), or edit renderer_settings.xml under the Proton prefix (compatdata/218620/pfx/drive_c/users/steamuser/AppData/Local/PAYDAY 2/) to match your monitor's native resolution, refresh rate and aspect ratio."
           verified: false
           source: "steamcommunity.com/app/218620/discussions/22/364039785167804415 (retrieved 2026-07-15)"
-
-      - symptom: "SuperBLT still won't inject, or mods needing the VC++ runtime fail under Proton"
-        cause: "Some native SuperBLT builds/mods depend on the Microsoft Visual C++ 2017 redistributable inside the Proton prefix."
-        fix:
-          type: info
-          value: "Use the Windows SuperBLT install (drop IPHLPAPI.dll + the mod_overrides/mods folders into the PAYDAY 2 install dir) together with the WINEDLLOVERRIDES=\"wsock32=n,b\" %command% launch option. If mods still fail, install the Microsoft Visual C++ 2017 Redistributable into the game's Proton prefix (e.g. via protontricks 218620 vcrun2017)."
-          verified: false
-          source: "steamcommunity.com/sharedfiles/filedetails/?id=2649986928 (retrieved 2026-07-15)"
 
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
