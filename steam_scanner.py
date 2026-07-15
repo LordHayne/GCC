@@ -21,6 +21,8 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+import time
 import urllib.request
 
 STEAM_ROOTS = [
@@ -375,14 +377,60 @@ def set_launch_options(appid, value):
 # ============================================================
 # ProtonDB tier (read-only context signal)
 # ============================================================
+# ProtonDB tiers are cached locally so a rescan doesn't hit the API once per
+# game (a big library would be hundreds of calls + rate-limiting), works offline,
+# and refreshes each tier about weekly. New games are fetched on demand.
+_PDB_CACHE = os.path.join(
+    os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+    "gaming-command-center", "protondb.json")
+_PDB_TTL = 7 * 24 * 3600
+_pdb_lock = threading.Lock()
+_pdb_mem = None
+
+
+def _pdb_cache():
+    """Lazily load the on-disk cache into a shared in-memory dict."""
+    global _pdb_mem
+    if _pdb_mem is None:
+        try:
+            with open(_PDB_CACHE) as f:
+                _pdb_mem = json.load(f)
+        except Exception:
+            _pdb_mem = {}
+    return _pdb_mem
+
+
+def _pdb_store(appid, tier, total):
+    with _pdb_lock:
+        cache = _pdb_cache()
+        cache[appid] = {"tier": tier, "total": total, "ts": time.time()}
+        try:
+            os.makedirs(os.path.dirname(_PDB_CACHE), exist_ok=True)
+            tmp = _PDB_CACHE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(cache, f)
+            os.replace(tmp, _PDB_CACHE)
+        except OSError:
+            pass
+
+
 def protondb_tier(appid, timeout=6):
-    """(tier, report_count) from ProtonDB, or (None, 0). Never raises."""
+    """(tier, report_count) from ProtonDB, cached ~weekly. Never raises. Falls
+    back to a stale cache entry when offline, and to (None, 0) if all else fails."""
+    appid = str(appid)
+    ent = _pdb_cache().get(appid)
+    if ent and (time.time() - ent.get("ts", 0)) < _PDB_TTL:
+        return ent.get("tier"), ent.get("total", 0)
     url = f"https://www.protondb.com/api/v1/reports/summaries/{appid}.json"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
             data = json.loads(r.read().decode())
-        return data.get("tier"), int(data.get("total", 0))
+        tier, total = data.get("tier"), int(data.get("total", 0))
+        _pdb_store(appid, tier, total)
+        return tier, total
     except Exception:
+        if ent:                       # stale, but better than a blank badge
+            return ent.get("tier"), ent.get("total", 0)
         return None, 0
 
 
