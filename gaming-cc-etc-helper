@@ -11,8 +11,9 @@
 # gaming-cc-etc-helper — root helper for Gaming Command Center
 #
 # Usage:
-#   gaming-cc-etc-helper modprobe    # NVreg_PreserveVideoMemoryAllocations=1
-#   gaming-cc-etc-helper coolbits    # Option "Coolbits" "28"
+#   gaming-cc-etc-helper modprobe     # NVreg_PreserveVideoMemoryAllocations=1
+#   gaming-cc-etc-helper coolbits     # Option "Coolbits" "28"
+#   gaming-cc-etc-helper maxmapcount  # vm.max_map_count = 2147483642
 #
 # Everything here writes to /etc and survives a reboot, so it sits behind its
 # own polkit action that asks for admin authentication — unlike core parking,
@@ -28,6 +29,8 @@ set -u
 NVIDIA_CONF=/etc/modprobe.d/nvidia.conf
 XORG_DIR=/etc/X11/xorg.conf.d
 XORG_CONF=$XORG_DIR/10-nvidia.conf
+SYSCTL_CONF=/etc/sysctl.d/99-gaming-cc.conf
+MAX_MAP_COUNT=2147483642
 
 die() { echo "ERR: $1" >&2; exit 1; }
 
@@ -131,8 +134,22 @@ EOF
         echo "DONE_COOLBITS"
         ;;
 
+    maxmapcount)
+        # Persist for next boot AND apply now, so the fix takes effect without a
+        # reboot. Our own file in sysctl.d, so a plain rewrite is safe here.
+        mkdir -p "$(dirname "$SYSCTL_CONF")" || die "could not create /etc/sysctl.d"
+        printf '# Written by Gaming Command Center\nvm.max_map_count = %s\n' \
+            "$MAX_MAP_COUNT" > "$SYSCTL_CONF" || die "could not write $SYSCTL_CONF"
+        # Apply to the running kernel; report if that step fails but the file is set.
+        if ! sysctl -q -w "vm.max_map_count=$MAX_MAP_COUNT" 2>/dev/null; then
+            echo "$MAX_MAP_COUNT" > /proc/sys/vm/max_map_count \
+                || echo "NOTE: written to $SYSCTL_CONF, takes effect on next boot"
+        fi
+        echo "DONE_MAXMAPCOUNT"
+        ;;
+
     *)
-        echo "Usage: gaming-cc-etc-helper modprobe | coolbits"
+        echo "Usage: gaming-cc-etc-helper modprobe | coolbits | maxmapcount"
         exit 1
         ;;
 esac

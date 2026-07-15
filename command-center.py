@@ -436,7 +436,7 @@ class GameDoctorPage(Gtk.Box):
         headline.set_markup("<span size='15000' weight='bold' color='#c0caf5'>Ready to check your system</span>")
         box.append(headline)
 
-        desc = Gtk.Label(label="20 checks across your GPU, CPU, gaming tools, Proton "
+        desc = Gtk.Label(label="20+ checks across your GPU, CPU, gaming tools, Proton "
                                "and power settings — most with a one-click fix.")
         desc.add_css_class("page-subtitle")
         desc.set_wrap(True)
@@ -2326,7 +2326,7 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     # Settings Page
     # ============================================================
-    APP_VERSION = "0.1.0"
+    APP_VERSION = "0.1.1"
     GITHUB_URL = "https://github.com/LordHayne/GCC"
 
     def _build_settings_page(self):
