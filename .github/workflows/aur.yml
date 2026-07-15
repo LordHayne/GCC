@@ -86,10 +86,14 @@ jobs:
           git clone ssh://aur@aur.archlinux.org/gaming-command-center.git aur-repo
           cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO aur-repo/
           cd aur-repo
+          # A fresh AUR package clones as an empty repo: force the branch to master
+          # (the only branch the AUR accepts) and push to it explicitly. A bare
+          # `git push` here fails with "no upstream" (exit 128) on the first commit.
+          git checkout -B master
           git add PKGBUILD .SRCINFO
-          if git diff --cached --quiet; then
+          if git diff --cached --quiet HEAD 2>/dev/null; then
             echo "Nothing changed — AUR already at this version."
           else
             git commit -m "gaming-command-center ${{ steps.ver.outputs.version }}-1"
-            git push
+            git push origin master
           fi
