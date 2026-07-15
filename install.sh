@@ -157,8 +157,10 @@ echo "  ✅ App icon installed"
 # Wayland compositors (COSMIC, GNOME, …) can't map the window to this entry and
 # fall back to a generic/blank taskbar icon. StartupWMClass covers X11 as well.
 sudo mkdir -p /usr/share/applications
-# Drop the old mismatched name from earlier installs so we don't leave a duplicate.
+# Drop the old mismatched name from earlier installs so we don't leave a
+# duplicate — both system-wide and the user-local copy some early builds wrote.
 sudo rm -f /usr/share/applications/gaming-command-center.desktop
+rm -f "$HOME/.local/share/applications/gaming-command-center.desktop"
 sudo tee /usr/share/applications/com.gaming.commandcenter.desktop > /dev/null << 'DESKTOP'
 [Desktop Entry]
 Name=Gaming Command Center

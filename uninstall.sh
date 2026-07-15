@@ -37,19 +37,24 @@ echo "  ✅ Helpers removed"
 sudo rm -f /usr/share/polkit-1/actions/com.gaming.commandcenter.policy
 echo "  ✅ Polkit policy removed"
 
-# 3. App icons (every size install.sh wrote, plus scalable)
+# 3. App icons (every size install.sh wrote, plus scalable). Also clean the
+#    user-local hicolor copies some early builds left behind.
 for size in 48 64 128 256 512; do
     sudo rm -f "/usr/share/icons/hicolor/${size}x${size}/apps/gaming-command-center.png"
+    rm -f "$HOME/.local/share/icons/hicolor/${size}x${size}/apps/gaming-command-center.png"
 done
 sudo rm -f /usr/share/icons/hicolor/scalable/apps/gaming-command-center.png
+rm -f "$HOME/.local/share/icons/hicolor/scalable/apps/gaming-command-center.png"
 sudo gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
+gtk-update-icon-cache "$HOME/.local/share/icons/hicolor/" 2>/dev/null || true
 echo "  ✅ App icon removed"
 
-# 4. Desktop launchers — the current app-id name, the old mismatched name, and
-#    any user-local copy (that one needs no sudo).
+# 4. Desktop launchers — current app-id name and the old mismatched name, both
+#    system-wide and user-local (early builds wrote a user-local copy).
 sudo rm -f /usr/share/applications/com.gaming.commandcenter.desktop \
            /usr/share/applications/gaming-command-center.desktop
-rm -f "$HOME/.local/share/applications/com.gaming.commandcenter.desktop"
+rm -f "$HOME/.local/share/applications/com.gaming.commandcenter.desktop" \
+      "$HOME/.local/share/applications/gaming-command-center.desktop"
 sudo update-desktop-database /usr/share/applications/ 2>/dev/null || true
 update-desktop-database "$HOME/.local/share/applications/" 2>/dev/null || true
 echo "  ✅ Desktop launcher removed"
