@@ -55,7 +55,8 @@ ALLOWED_SESSION = {"wayland", "x11"}
 
 
 class Fix:
-    def __init__(self, ftype, value="", path="", content="", action="", verified=False):
+    def __init__(self, ftype, value="", path="", content="", action="", verified=False,
+                 source=""):
         self.type = ftype
         self.value = value      # info text / launch option string
         self.path = path        # file fix: target path
@@ -64,6 +65,9 @@ class Fix:
         # True only when a human has tested that this fix solves the issue.
         # Everything from a fresh PR starts unverified so the UI can flag it.
         self.verified = verified
+        # Provenance for researched (unverified) fixes: where the fix came from,
+        # e.g. a PCGamingWiki/ProtonDB URL. Empty for hand-authored entries.
+        self.source = source
 
     @property
     def is_applicable(self):
@@ -113,14 +117,15 @@ def _parse_fix(raw):
     if ftype not in ALLOWED_FIX_TYPES:
         return None
     verified = raw.get("verified") is True
+    source = _clean_str(raw.get("source", ""))
 
     if ftype == "info":
         text = _clean_str(raw.get("value", ""))
-        return Fix("info", value=text, verified=verified) if text else None
+        return Fix("info", value=text, verified=verified, source=source) if text else None
 
     if ftype == "launch_option":
         val = _clean_str(raw.get("value", ""))
-        return Fix("launch_option", value=val, verified=verified) if val else None
+        return Fix("launch_option", value=val, verified=verified, source=source) if val else None
 
     if ftype == "file":
         path = str(raw.get("path", "")).strip()
@@ -134,13 +139,13 @@ def _parse_fix(raw):
         real = os.path.normpath(expanded)
         if not real.startswith(home + os.sep):
             return None
-        return Fix("file", path=path, content=content, verified=verified)
+        return Fix("file", path=path, content=content, verified=verified, source=source)
 
     if ftype == "tool_action":
         action = str(raw.get("action", "")).strip()
         if action not in ALLOWED_TOOL_ACTIONS:
             return None
-        return Fix("tool_action", action=action, verified=verified)
+        return Fix("tool_action", action=action, verified=verified, source=source)
 
     return None
 

@@ -85,28 +85,48 @@ games:
     steam_id: 1091500
     aliases: ["cyberpunk"]
     issues:
-      - symptom: "Launcher screen hangs or crashes before reaching the game"
-        cause: "The REDlauncher wrapper is fragile under Proton; skipping it
-                avoids the failure entirely."
+      - symptom: "REDlauncher hangs or a long black screen appears before the main menu"
+        cause: "The intermediate REDlauncher/start splash behaves poorly under Proton; skipping it launches the game engine directly (gamemoderun also applies Feral GameMode)."
         fix:
           type: launch_option
           value: "gamemoderun %command% --launcher-skip"
+          verified: false
+          source: "linuxlookup.com/howto/howto_play_cyberpunk_2077_linux_steam (retrieved 2026-07-15)"
 
-      - symptom: "Game won't start or mods fail after installing Amethyst / .NET mods"
-        cause: "Modding frameworks need native winmm and version DLL overrides
-                so Wine doesn't use its built-in substitutes."
+      - symptom: "Mods (RED4ext, Cyber Engine Tweaks, REDmod) silently fail to load under Proton"
+        cause: "Proton does not inject the winmm/version proxy DLLs that the RED4ext/CET loaders hook into; overriding them to native lets the loaders run."
         fix:
           type: launch_option
-          value: "WINEDLLOVERRIDES=\"winmm,version=n,b\" %command% -modded"
+          value: "WINEDLLOVERRIDES=\"winmm,version=n,b\" %command%"
+          verified: false
+          source: "wiki.redmodding.org/.../modding-on-linux (retrieved 2026-07-15)"
 
-      - symptom: "Flickering reflections and missing XeSS upscaling on Intel/AMD GPUs"
-        cause: "XeSS is Intel-only; on non-Intel hardware the game falls back
-                to broken built-in upscaling. FSR replacement fixes it."
+      - symptom: "Unsure how to enable DLSS / ray reconstruction on NVIDIA under Proton"
+        cause: "DLSS relies on NVIDIA NVAPI, which modern Proton exposes automatically through the bundled DXVK-NVAPI."
+        when: { gpu: nvidia }
         fix:
           type: info
-          value: "Install OptiScaler (mod) or use PROTON_FSR4_UPGRADE=1 with a
-                  recent Proton build. For FSR4 on RDNA4 GPUs, use
-                  Proton CachyOS or GE-Proton11."
+          value: "DLSS Super Resolution and Ray Reconstruction work out of the box on current Proton via DXVK-NVAPI - no launch option needed. DLSS Frame Generation requires an RTX 40-series (Ada) GPU, so it is unavailable on the RTX 2070 SUPER; even on supported cards it currently shows frame-pacing issues under Proton."
+          verified: false
+          source: "news.itsfoss.com/nvidia-dlss-dx-11-12-proton (retrieved 2026-07-15)"
+
+      - symptom: "Want FSR 4 upscaling instead of FSR 2/3 on an AMD Radeon GPU"
+        cause: "FSR 4 shipped only for RDNA 4 natively; RDNA 3 needs Proton Experimental and/or OptiScaler injection."
+        when: { gpu: amd }
+        fix:
+          type: info
+          value: "On RDNA 4 set PROTON_FSR4_UPGRADE=1 in the launch options to upgrade the game's FSR 3.1/DLSS input to FSR 4. On RDNA 3, FSR 4 is available via Proton Experimental (plus OptiScaler). This is AMD-only and does not apply to NVIDIA or Intel GPUs."
+          verified: false
+          source: "gamingonlinux.com/2026/06/amd-fsr-4-lands-on-rdna3-dgpus-for-linux (retrieved 2026-07-15)"
+
+      - symptom: "Random full game freezes / GPU hangs on a Wayland session with NVIDIA"
+        cause: "XWayland + NVIDIA driver interaction has caused intermittent hangs in the D3D12/vkd3d-proton path; several users report the freezes disappear on an X11 session."
+        when: { session: wayland }
+        fix:
+          type: info
+          value: "If the game freezes at random (desktop stays alive), log into a Plasma/X11 session and launch from there to test whether it is an XWayland+NVIDIA issue. Keeping the NVIDIA driver current also helps."
+          verified: false
+          source: "steamcommunity.com/app/1091500/discussions/7/3878218962821298693 (retrieved 2026-07-15)"
 
   - name: "Elden Ring"
     steam_id: 1245620
@@ -140,6 +160,47 @@ games:
                   Linux - the game should pass the check with a supported
                   Proton version."
 
+      - symptom: "Multiplayer stutter and FPS drops, especially once connected to a co-op/summoning session"
+        cause: "Linux kernel 5.19+ throttles split-lock CPU instructions (which the engine issues heavily) by sleeping the thread ~10ms, crippling FPS. Disabling the mitigation removes the penalty."
+        fix:
+          type: info
+          value: "Elden Ring triggers many split-lock CPU instructions that the kernel throttles, causing multiplayer stutter. Disable the mitigation: `sudo sysctl -w kernel.split_lock_mitigate=0` for this session, or add kernel.split_lock_mitigate=0 to a /etc/sysctl.d/ file to make it permanent (alternatively split_lock_detect=off as a kernel boot parameter)."
+          verified: false
+          source: "protondb.com/app/1245620 (retrieved 2026-07-15)"
+
+      - symptom: "Hard crashes (NVIDIA Xid errors) when entering areas or after a few minutes, on recent NVIDIA drivers"
+        cause: "Without the VK_EXT_descriptor_heap path in vkd3d-proton, newer NVIDIA drivers hit hard crashes. Enabling descriptor_heap resolves it (needs a Proton build that ships it, e.g. Proton-CachyOS or recent GE-Proton)."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "VKD3D_CONFIG=descriptor_heap %command%"
+          verified: false
+          source: "protondb.com/app/1245620 (retrieved 2026-07-15)"
+
+      - symptom: "Frame rate hard-locked to 60 FPS; want a higher cap or ultrawide (solo / Seamless Co-op only)"
+        cause: "The engine hard-locks physics/animation to 60 FPS. er-patcher live-patches the running executable to raise the cap and add ultrawide. It disables EAC, so it is for solo/Seamless play, not official online."
+        fix:
+          type: launch_option
+          value: "python er-patcher --rate 144 -uvca -- %command%"
+          verified: false
+          source: "github.com/gurrgur/er-patcher (retrieved 2026-07-15)"
+
+      - symptom: "Noticeable frame-drop/judder while connected to a co-op lobby, even at 60 FPS"
+        cause: "Being in a co-op session adds a small persistent frame-rate drop. Uncapping the engine and re-capping a few FPS above the monitor refresh masks the judder."
+        fix:
+          type: info
+          value: "Raise the internal cap with a frame-unlock patch (e.g. er-patcher --rate), then re-limit with MangoHud a few FPS ABOVE your refresh rate, e.g. `MANGOHUD_CONFIG=fps_limit=64 mangohud %command%` on a 60Hz panel. Frame-unlock patches disable EAC, so this is for solo/Seamless play, not official online."
+          verified: false
+          source: "protondb.com/app/1245620 (retrieved 2026-07-15)"
+
+      - symptom: "Want Seamless Co-op (drop-in co-op without fog walls/summon signs, incl. Shadow of the Erdtree) on Linux"
+        cause: "Seamless Co-op replaces the EAC launcher with its own and runs private password-matched sessions over Steam networking, separate from FromSoftware's servers. EAC must be off, so official online is unavailable while installed."
+        fix:
+          type: info
+          value: "Install the ER Seamless Co-op mod into the game folder (the ERSC-Updater-Linux script auto-detects the install and swaps start_protected_game.exe for the mod launcher), then launch Elden Ring normally from Steam with no extra options - or add ersc_launcher.exe as a non-Steam game with Proton 8/9+ or recent GE-Proton. EAC is bypassed by design (no EAC splash = installed correctly), so official matchmaking is unavailable while active; all players need matching passwords in ersc_settings.ini."
+          verified: false
+          source: "ersc-docs.github.io/how-to-install-and-update (retrieved 2026-07-15)"
+
   - name: "Baldur's Gate 3"
     steam_id: 1086940
     aliases: ["bg3", "baldurs gate 3"]
@@ -159,20 +220,43 @@ games:
           type: launch_option
           value: "%command% --skip-launcher"
 
+      - symptom: "Vulkan renderer crashes or hangs; DX11 is more stable on NVIDIA (Windows/Proton build only)"
+        cause: "BG3's Vulkan backend is a flaky beta renderer under Proton; the DX11 executable via DXVK is more stable on NVIDIA. The native Linux build is the cleaner fix - this is only for users forcing the Windows build."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "On the Windows/Proton build with Vulkan crashes, force DX11: launch bin/bg3_dx11.exe instead of the launcher (e.g. rename bg3_dx11.exe to bg3.exe in the install folder). Better still, use the native Linux build (Steam Linux Runtime 3.0 sniper), which avoids this entirely."
+          verified: false
+          source: "blog.syntaxseed.com/baldurs-gate-3-on-ubuntu-linux (retrieved 2026-07-15)"
+
+      - symptom: "Crash to desktop or out-of-memory in Act 3 or dense scenes despite free RAM/VRAM"
+        cause: "BG3 exceeds the kernel's vm.max_map_count limit (old default 65530); the process runs out of memory-map areas and is killed."
+        fix:
+          type: info
+          value: "Check `sysctl vm.max_map_count`. If it is the old default 65530, raise it: add vm.max_map_count=1048576 to a file in /etc/sysctl.d/ and run `sudo sysctl --system`. Modern gaming distros (CachyOS, Fedora, Ubuntu 24.04+, current Arch) already ship 1048576+, so this is usually only needed on older/manual setups."
+          verified: false
+          source: "gamingonlinux.com/2024/04/arch-linux-changes-vmmax-map-count (retrieved 2026-07-15)"
+
+      - symptom: "Frame-time stutter / micro-hitching during the first hour or when entering new areas"
+        cause: "First-time DXVK shader compilation; shaders compile and cache to disk on the fly, so hitches fade as the cache fills."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Early shader-compilation stutter is expected and transient - it fades as the DXVK cache builds. Don't clear the Proton shader cache between sessions. Keep Proton current (Proton 9+/recent GE-Proton) for threaded shader compilation and NVAPI optimizations that improve BG3 on NVIDIA."
+          verified: false
+          source: "gamingonlinux.com/2023/08/baldurs-gate-3-steam-deck-and-desktop-linux (retrieved 2026-07-15)"
+
   - name: "Helldivers 2"
     steam_id: 553850
     aliases: ["helldivers", "hd2"]
     issues:
-      - symptom: "Black screen on startup, game won't launch"
-        cause: "Recent game updates broke compatibility with stable Proton;
-                Proton Experimental (bleeding-edge) includes the fix."
+      - symptom: "Black screen on startup, game won't launch (worse after 2026 Arrowhead patch)"
+        cause: "Arrowhead's on-launch validation broke the game under stock Proton; Valve shipped the fix in Proton Hotfix. Older Experimental/GE builds can still fail the post-patch crash."
         fix:
           type: info
-          value: "Switch to Proton Experimental. If it still won't start,
-                  enable the bleeding-edge beta: right-click Proton
-                  Experimental in your library -> Properties -> Betas ->
-                  bleeding-edge. Then delete the shader cache at
-                  ~/.steam/steam/steamapps/compatdata/553850"
+          value: "Set the compatibility tool to Proton Hotfix (right-click the game -> Properties -> Compatibility -> Proton Hotfix); it is now Valve's default for this title and fixes the post-patch launch crash. Distro-packaged Proton (e.g. Proton-CachyOS) already carries the fix. If it still won't start, delete the shader cache at ~/.steam/steam/steamapps/compatdata/553850 and retry."
+          verified: false
+          source: "gamingonlinux.com/2026/04/proton-hotfix-updated-to-fix-helldivers-2 (retrieved 2026-07-15)"
 
       - symptom: "Mouse escapes the window on multi-monitor setups"
         cause: "SDL on Wayland doesn't grab the pointer to the game window
@@ -189,418 +273,1182 @@ games:
           value: "Disable Async Compute in the in-game graphics settings.
                   This is a game/engine bug, not a Linux issue."
 
+      - symptom: "Frequent stutter / frame-time hitches during gameplay in the default DirectX 12 mode"
+        cause: "The game's D3D12 path stutters under vkd3d-proton; forcing D3D11 routes through DXVK, which is smoother for many Linux users."
+        fix:
+          type: launch_option
+          value: "%command% --use-d3d11"
+          verified: false
+          source: "protondb.com/app/553850 (retrieved 2026-07-15)"
+
+      - symptom: "NVIDIA: want DLSS/NVAPI and smoother frame pacing under Proton"
+        cause: "Enabling NVAPI exposes DLSS and driver optimizations; gamemode and the D3D11 path further smooth frame pacing on NVIDIA."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "PROTON_ENABLE_NVAPI=1 gamemoderun %command% --use-d3d11"
+          verified: false
+          source: "protondb.com/app/553850 (retrieved 2026-07-15)"
+
+      - symptom: "Unsure whether the nProtect GameGuard anti-cheat blocks the game on Linux"
+        cause: "GameGuard historically scared off Linux players, but it is explicitly permitted on Proton and loads in user mode on Linux."
+        fix:
+          type: info
+          value: "nProtect GameGuard IS supported on Linux/Proton and does not block the game (status Running on areweanticheatyet.com; ProtonDB Gold, best-reported Platinum). No anti-cheat workaround is needed - just use a working Proton version. If first launch hangs on 'downloading nProtect', let it finish or clear the compat cache and retry."
+          verified: false
+          source: "areweanticheatyet.com/game/helldivers-2 (retrieved 2026-07-15)"
+
   - name: "Palworld"
     steam_id: 1623730
     aliases: ["palworld"]
     issues:
-      - symptom: "Server browser or multiplayer connectivity issues"
-        cause: "Palworld uses EOS (Epic Online Services) which sometimes
-                has connection issues under Proton."
+      - symptom: "Multiplayer co-op or dedicated server does not show up in the in-game community server browser, or the list is empty / stale on Linux"
+        cause: "The community browser listing is flaky (relies on the 27015/UDP query port and can take minutes to appear or get hidden under load); it is not a Proton-specific fault. Direct connect bypasses the browser entirely."
         fix:
           type: info
-          value: "Use GE-Proton10-34 or newer for best EOS compatibility.
-                  If server browser fails, connect via direct IP instead."
+          value: "In the main menu pick Join Multiplayer Game and, in the community-server search bar, type the server's address as ip:port (default port 8211), e.g. 203.0.113.5:8211, then connect. Direct connect works even when the browser listing is broken. Palworld uses EOS but has NO blocking anti-cheat, so no special Proton build is required - stock Proton or Proton Experimental connects fine. The old advice that GE-Proton is needed for EOS is outdated."
+          verified: false
+          source: "docs.palworldgame.com/getting-started/connect-server (retrieved 2026-07-15)"
+
+      - symptom: "Frequent hitching / stutter and VRAM pressure (freezes when new Pals, biomes or bases load) under Proton"
+        cause: "Palworld is UE5 and defaults toward DX11 from its API-select popup; on Proton, forcing DX12 routes through vkd3d-proton, which manages VRAM better and reduces the traversal stalls many players hit."
+        fix:
+          type: launch_option
+          value: "%command% -dx12"
+          verified: false
+          source: "steamcommunity.com/app/1623730/discussions/0/4203615946833687353 (retrieved 2026-07-15)"
+
+      - symptom: "Shader-compilation stutter on first traversal through areas even after switching DX mode (first-run hitching in UE5 titles)"
+        cause: "DXVK/vkd3d-proton must compile pipelines the first time each shader is seen. Modern Proton uses VK_EXT_graphics_pipeline_library to precompile and cache these, which largely eliminates the one-time stutter."
+        fix:
+          type: info
+          value: "Use Proton Experimental (or a recent GE-Proton) on an up-to-date NVIDIA driver so the graphics-pipeline-library path is active; let the game cache shaders on first playthrough of an area - stutter drops sharply on subsequent visits. Do not delete the Steam shader cache to 'fix' stutter; that forces recompilation."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/8159 (retrieved 2026-07-15)"
 
   - name: "Counter-Strike 2"
     steam_id: 730
     aliases: ["cs2", "counter-strike"]
     issues:
-      - symptom: "No audio or audio crackling/popping"
-        cause: "CS2's SDL audio backend doesn't always auto-detect PipeWire
-                or PulseAudio on Linux."
+      - symptom: "No audio, or crackling/stuttering audio in the native Linux build"
+        cause: "CS2's SDL3 audio backend picks a poor default output on Linux; forcing the PipeWire driver restores clean audio. (-vulkan is not needed on Linux - Vulkan is already the default renderer.)"
         fix:
           type: launch_option
-          value: "%command% -vulkan -sdlaudiodriver pipewire"
+          value: "%command% -sdlaudiodriver pipewire"
+          verified: false
+          source: "linuxthings.co.uk/blog/cs2-audio-delay (retrieved 2026-07-15)"
 
-      - symptom: "Mouse not captured / cursor escapes on GNOME Wayland"
-        cause: "GNOME Wayland doesn't lock the pointer properly for the
-                native SDL2 client without a hint."
+      - symptom: "Audio slowly drifts out of sync / grows delayed over a match"
+        cause: "CS2 asks for a 44100 Hz sample rate but assumes it got it even when PipeWire runs the device at 48000 Hz, so audio progressively desyncs. Pinning PipeWire to 44100 Hz fixes it without the exclusive-device ALSA workaround."
+        fix:
+          type: file
+          path: "~/.config/pipewire/pipewire.conf.d/force44100.conf"
+          content: |
+            context.properties = {
+                default.clock.rate          = 44100
+                default.clock.allowed-rates = [ 44100 ]
+            }
+          verified: false
+          source: "linuxthings.co.uk/blog/cs2-audio-delay (retrieved 2026-07-15)"
+
+      - symptom: "On Wayland the mouse escapes the window / aim stops turning at the screen edge"
+        cause: "CS2's native SDL Wayland backend (since the 2024-10-03 update) fails to hold a proper pointer lock. Forcing SDL to X11 runs it through XWayland, which grabs the cursor correctly."
         when: { session: wayland }
         fix:
           type: launch_option
-          value: "SDL_VIDEODRIVER=wayland %command% -vulkan -sdlaudiodriver pipewire -fullscreen"
+          value: "SDL_VIDEODRIVER=x11 %command%"
+          verified: false
+          source: "github.com/ValveSoftware/csgo-osx-linux/issues/3856 (retrieved 2026-07-15)"
 
-      - symptom: "Screen tearing or VSync not respected"
-        cause: "The native Vulkan renderer doesn't enable VSync by default
-                on some compositors."
+      - symptom: "Screen tearing during play"
+        cause: "Borderless/windowed mode does not sync to the display on Linux. Running true exclusive fullscreen (paired with an in-game fps cap or V-Sync, or a VRR display) removes tearing."
         fix:
           type: launch_option
-          value: "gamemoderun %command% -vulkan -sdlaudiodriver pipewire +fps_max 0 -nojoy -fullscreen"
+          value: "%command% -fullscreen"
+          verified: false
+          source: "github.com/ValveSoftware/csgo-osx-linux/issues/3466 (retrieved 2026-07-15)"
 
-      - symptom: "Low latency / AMD Anti-Lag not available on Linux"
-        cause: "AMD Anti-Lag is not exposed in the Linux version of CS2;
-                the Mesa Anti-Lag layer can substitute."
+      - symptom: "AMD Anti-Lag 2 / latency reduction never engages"
+        cause: "Mesa's built-in VkLayer_MESA_anti_lag is disabled by default and behaves as a no-op, so ENABLE_LAYER_MESA_ANTI_LAG=1 typically has no effect. The maintained hardware-agnostic low_latency_layer (Reflex + Anti-Lag 2) is the working route."
         when: { gpu: amd }
         fix:
-          type: launch_option
-          value: "ENABLE_LAYER_MESA_ANTI_LAG=1 %command% -vulkan"
+          type: info
+          value: "Install the third-party Korthos-Software/low_latency_layer Vulkan implicit layer instead of relying on ENABLE_LAYER_MESA_ANTI_LAG; Mesa's own anti-lag layer is off by default and effectively a no-op. (Also works on Intel and NVIDIA GPUs.)"
+          verified: false
+          source: "gamingonlinux.com/2026/05/new-low-latency-layer-brings-reflex-and-anti-lag-2-to-amd-and-intel-gpus-on-linux (retrieved 2026-07-15)"
+
+      - symptom: "VAC error / cannot join VAC-secured (matchmaking) servers"
+        cause: "Only the native Linux build is VAC-signed. Launching CS2 through a Proton/Windows compatibility layer blocks you from every VAC-secured server."
+        fix:
+          type: info
+          value: "Run CS2 as the native Linux game. Do NOT force a Proton/Steam Play compatibility tool on App 730 - the Proton build cannot connect to VAC-secured servers."
+          verified: false
+          source: "steamcommunity.com/app/730/discussions/0/3821921664844622397 (retrieved 2026-07-15)"
+
+      - symptom: "Unsure whether the -vulkan launch option is needed on Linux"
+        cause: "CS2 already uses its native Vulkan renderer by default on Linux; -vulkan only matters on Windows, so adding it on Linux does nothing."
+        fix:
+          type: info
+          value: "Omit -vulkan on Linux - Vulkan is the default renderer for the native build; the flag is only meaningful on Windows."
+          verified: false
+          source: "developer.valvesoftware.com/wiki/Vulkan (retrieved 2026-07-15)"
 
   - name: "Dota 2"
     steam_id: 570
     aliases: ["dota"]
     issues:
-      - symptom: "No audio or audio crackling/popping"
-        cause: "Dota 2's SDL audio backend sometimes fails to auto-detect
-                the audio server on Linux."
+      - symptom: "No audio, or crackling / stuttering sound in the native Linux client"
+        cause: "SDL2 defaults to its PulseAudio backend, which misbehaves on modern PipeWire setups; forcing SDL's native PipeWire driver fixes dropouts and crackle."
         fix:
           type: launch_option
-          value: "SDL_AUDIODRIVER=pipewire PULSE_LATENCY_MSEC=60 gamemoderun %command% -novid -high -sdlaudiodriver pipewire"
+          value: "%command% -sdlaudiodriver pipewire"
+          verified: false
+          source: "steamcommunity.com/app/570/discussions/0/3884974596970642497 (retrieved 2026-07-15)"
 
-      - symptom: "Stuttering or inconsistent frame pacing"
-        cause: "Vulkan present mode can default to FIFO (VSync) which causes
-                frame drops if FPS dips below refresh rate."
+      - symptom: "All system audio mutes when a Bluetooth headset disconnects mid-game and stays muted until Dota is closed"
+        cause: "Under PipeWire, Dota's SDL PulseAudio backend holds the sink and blocks fallback to another output device on disconnect; forcing SDL's ALSA driver bypasses the bug."
         fix:
           type: launch_option
-          value: "MESA_VK_WSI_PRESENT_MODE=relaxed gamemoderun %command% -novid -nojoy -high -sdlaudiodriver pipewire"
+          value: "SDL_AUDIODRIVER=alsa %command%"
+          verified: false
+          source: "github.com/ValveSoftware/Dota-2/issues/3265 (retrieved 2026-07-15)"
+
+      - symptom: "Vulkan renderer stutters, hitches, or crashes on NVIDIA GPUs (driver 522.25 and newer)"
+        cause: "Dota's use of the VK_EXT_graphics_pipeline_library extension triggers a bug on NVIDIA's Vulkan driver on older (Pascal/Turing) GPUs; this flag disables that codepath."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "%command% -vulkan_disable_graphics_pipeline_library"
+          verified: false
+          source: "steamcommunity.com/app/570/discussions/0/3487502140239104914 (retrieved 2026-07-15)"
+
+      - symptom: "Persistent frame-pacing stutter on the Vulkan renderer, especially during teamfights"
+        cause: "Dota defaults to Vulkan; on some driver/GPU combos the OpenGL renderer has smoother frame pacing. Switch with -gl to force OpenGL, or -vulkan to force Vulkan back."
+        fix:
+          type: launch_option
+          value: "%command% -gl"
+          verified: false
+          source: "github.com/ValveSoftware/Dota-2-Vulkan (retrieved 2026-07-15)"
 
   - name: "Apex Legends"
     steam_id: 1172470
     aliases: ["apex", "apex legends"]
     issues:
-      - symptom: "Game won't launch — blocked by Easy Anti-Cheat (EAC)"
-        cause: "EA/DICE has explicitly denied Linux support for Apex Legends.
-                EAC blocks the game from running under Proton."
+      - symptom: "Game won't launch, kicks to menu, or bans - blocked by anti-cheat on Linux"
+        cause: "EA disabled Easy Anti-Cheat + Hyperion support for Linux/Proton on 2024-10-31 - a deliberate publisher block, not a technical failure."
         fix:
           type: info
-          value: "Apex Legends is DENIED on Linux. The anti-cheat (EAC +
-                  Hyperion) will not let the game start. There is no fix -
-                  this is a publisher decision, not a technical limitation.
-                  Apex will not run on Linux for the foreseeable future."
+          value: "Apex Legends is DENIED on Linux. EA turned off Linux/Steam Deck anti-cheat support on 2024-10-31; there is no Proton flag, EAC toggle, or workaround that restores access, and attempting to play online can get your account BANNED. The only options are Windows on the same hardware or a console. Re-verified 2026-07-15 - still blocked."
+          verified: false
+          source: "areweanticheatyet.com/game/apex-legends (retrieved 2026-07-15)"
 
   - name: "PUBG: Battlegrounds"
     steam_id: 578080
     aliases: ["pubg"]
     issues:
-      - symptom: "Game won't launch — BattlEye anti-cheat blocks it"
-        cause: "PUBG uses BattlEye which is listed as 'Broken' on
-                AreWeAntiCheatYet. The anti-cheat kicks the player before
-                the game loads."
+      - symptom: "PUBG: BATTLEGROUNDS refuses to launch on Linux/Proton - it starts, then closes immediately or shows a BattlEye/anti-cheat error before reaching the menu"
+        cause: "PUBG uses BattlEye anti-cheat. BattlEye has technically supported Proton/Linux since 2021, but it is opt-in per game and PUBG's developer (Krafton) has never enabled Proton support. Without the developer flipping that switch, BattlEye blocks the game on Linux. This is a developer-policy block, not a fixable client-side problem."
         fix:
           type: info
-          value: "PUBG is BROKEN on Linux. BattlEye anti-cheat blocks the
-                  game. PUBG Corporation has not enabled Linux support for
-                  BattlEye. There is no fix - the game will not run."
+          value: "There is no fix. PUBG is unplayable on Linux/Steam Deck because Krafton has not enabled BattlEye Proton support. Do not waste time on launch options, Proton-GE, or protontricks - nothing on the user side can bypass the anti-cheat block. Status as of 2026-07-15: BattlEye status 'Broken' (areweanticheatyet.com), ProtonDB tier 'Borked' (194 reports). No fix exists until the developer opts in."
+          verified: false
+          source: "areweanticheatyet.com/game/pubg-battlegrounds (retrieved 2026-07-15)"
 
   - name: "Grand Theft Auto V"
     steam_id: 271590
     aliases: ["gtav", "gta 5", "gta v"]
     issues:
-      - symptom: "Game won't start — Rockstar Social Club installer fails"
-        cause: "The Rockstar launcher needs .NET 4.8 and vcredist to install
-                via Proton; default Proton doesn't include these."
+      - symptom: "Rockstar Games Launcher / Social Club installer fails to start or hangs on first launch"
+        cause: "GTA V Legacy is DRM-wrapped in the Rockstar Games Launcher, which needs a modern Proton to install cleanly; older guides added a manual dotnet48 step that is now usually unnecessary and can itself break the prefix."
         fix:
           type: info
-          value: "Use Proton Experimental or GE-Proton. Install dependencies:
-                  protontricks 271590 dotnet48 vcredist2022
-                  Then set launch options to skip BattlEye (see below)."
+          value: "Set the title to a recent Proton (Proton Experimental, Proton 9+, or GE-Proton) and let it install the Rockstar Launcher on first run - GTA V Legacy is ProtonDB Gold and generally works without manual tricks. The old 'protontricks 271590 dotnet48' step is no longer required on modern Proton and often makes the launcher worse; only fall back to protontricks if the launcher still fails after a clean prefix (delete compatdata for 271590 and reverify)."
+          verified: false
+          source: "protondb.com/app/271590 (retrieved 2026-07-15)"
 
-      - symptom: "GTA Online kicks you or won't connect — BattlEye anti-cheat"
-        cause: "GTA Online added BattlEye which is not enabled for Linux.
-                Single-player works fine; only online is blocked."
+      - symptom: "GTA Online kicks Linux/Proton players out of public and matchmaking sessions since the BattlEye update"
+        cause: "In late 2024 Rockstar added BattlEye to GTA V but has NOT toggled BattlEye's Linux/Proton support on their side. As of 2026 this is still not enabled, so GTA Online public/matchmaking play is officially unsupported on Linux. There is no launch option that restores it."
+        fix:
+          type: info
+          value: "GTA Online public play is blocked on Linux because Rockstar has not enabled BattlEye for Proton (still true as of 2026). No launch flag fixes matchmaking. Story Mode works fine. The only community workaround for private (invite-only/friends/crew) lobbies is the /etc/hosts BattlEye block, which carries ban risk and needs every player in the lobby to apply it."
+          verified: false
+          source: "gamingonlinux.com/2024/09/grand-theft-auto-v-gets-battleye-anti-cheat-breaks-online-play-on-steam-deck-linux (retrieved 2026-07-15)"
+
+      - symptom: "Story Mode won't launch with ScriptHookV / dinput8-based mods, or you want to skip the BattlEye prompt for single-player"
+        cause: "BattlEye's launcher gate and Wine's builtin dinput8 block ScriptHookV-style mod loaders; -nobattleye disables the anti-cheat for offline play and dinput8=n,b forces the native mod DLL to load. Safe for Story Mode only - never go online with this."
         fix:
           type: launch_option
           value: "WINEDLLOVERRIDES=\"dinput8=n,b\" %command% -nobattleye"
+          verified: false
+          source: "support.rockstargames.com/articles/ocorZr1KpQE8WvoHE3gBG (retrieved 2026-07-15)"
 
-      - symptom: "Flickering reflections in Diamond Casino and other areas (AMD)"
-        cause: "RADV driver DCC compression causes visual artifacts with
-                certain reflection effects in GTA V."
+      - symptom: "Graphical flicker/corruption in the Diamond Casino interior (and some UI surfaces) on AMD Radeon (RADV)"
+        cause: "RADV Delta Color Compression (DCC) mishandles certain render targets in some scenes, producing flicker on AMD; disabling DCC is the standard Mesa mitigation for this class of bug."
         when: { gpu: amd }
         fix:
           type: launch_option
           value: "RADV_DEBUG=nodcc gamemoderun mangohud %command%"
+          verified: false
+          source: "gamingonlinux.com/2024/03/valve-tweaks-wwe-2k24-for-amd-gpus (retrieved 2026-07-15)"
 
-      - symptom: "Invite-only online sessions get kicked despite -nobattleye"
-        cause: "BattlEye still phones home even with the DLL overridden."
+      - symptom: "Invite-only / friends / crew GTA Online lobbies still kick Linux players after the BattlEye update"
+        cause: "The community post-BattlEye method routes around Rockstar's disabled Linux BattlEye by blackholing BattlEye's session servers via /etc/hosts, which only holds up in private lobbies where every participant does the same."
         fix:
           type: info
-          value: "Block BattlEye servers in /etc/hosts to stay in invite-only
-                  lobbies. See the Steam Community guide:
-                  https://steamcommunity.com/sharedfiles/filedetails/?id=3658540317"
+          value: "BAN RISK - unofficial and unsupported. Community workaround: add '0.0.0.0 paradise-s1.battleye.com', '0.0.0.0 test-s1.battleye.com' to /etc/hosts, and add 'PROTON_BATTLEYE_RUNTIME=<path to Proton BattlEye Runtime> %command%' to launch options. Works ONLY for private/invite-only sessions and ONLY if every player in the lobby also edits their hosts file; public sessions stay blocked. The guide author cannot guarantee it won't get you banned. Editing /etc/hosts is a manual root change - do it yourself, the app must not."
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3658540317 (retrieved 2026-07-15)"
 
   - name: "Red Dead Redemption 2"
     steam_id: 1174180
     aliases: ["rdr2", "red dead"]
     issues:
-      - symptom: "Frequent crashes or instability on startup"
-        cause: "RDR2's Rockstar launcher is fragile under default Proton;
-                GE-Proton includes stability patches."
+      - symptom: "Crashes or instability on startup"
+        cause: "Older or pinned stock Proton builds mishandle RDR2's launcher and shader setup; Valve fixed RDR2 specifically in Proton Experimental (Oct 2024) and recent GE-Proton builds are stable."
         fix:
           type: info
-          value: "Use GE-Proton11-1 or newer. In Steam: Properties ->
-                  Compatibility -> force GE-Proton. This significantly
-                  reduces crash frequency."
+          value: "Properties -> Compatibility -> force Proton Experimental (most stable for RDR2) or a recent GE-Proton; avoid old pinned Proton versions."
+          verified: false
+          source: "gamingonlinux.com/2024/10/proton-experimental-improves-red-dead-redemption-2 (retrieved 2026-07-15)"
 
-      - symptom: "Fullscreen mode broken — window has wrong size or borders"
-        cause: "The Rockstar launcher sets a wrong window size that the
-                compositor doesn't correct."
+      - symptom: "Black screen or crash at the loading / pipeline-warmup screen, or missing ground/snow textures"
+        cause: "The DX12 renderer (vkd3d-proton) hits pipeline-creation assertions and has rendering bugs on Linux; RDR2's native Vulkan renderer is the stable path and is the intended Linux fix."
+        fix:
+          type: info
+          value: "In-game set Settings -> Graphics -> Graphics API = Vulkan (do NOT use DX12). If it crashes before the menu, set the API to Vulkan in Documents/Rockstar Games/RDR2/Settings/system.xml inside the Proton prefix, then relaunch."
+          verified: false
+          source: "github.com/HansKristian-Work/vkd3d-proton/issues/2522 (retrieved 2026-07-15)"
+
+      - symptom: "Fullscreen broken, wrong resolution/size, or won't start fullscreen on Wayland"
+        cause: "SDL's Wayland video driver mishandles fullscreen for this Vulkan client; forcing the X11 (XWayland) backend restores correct fullscreen."
+        when: { session: wayland }
         fix:
           type: launch_option
           value: "SDL_VIDEODRIVER=x11 %command%"
+          verified: false
+          source: "github.com/libsdl-org/SDL/issues/8845 (retrieved 2026-07-15)"
 
-      - symptom: "Red Dead Online multiplayer doesn't work"
-        cause: "RDO has no anti-cheat support for Linux; single-player
-                works fine but online is unsupported."
+      - symptom: "Red Dead Online (multiplayer) - is it blocked on Linux?"
+        cause: "RDO uses only Rockstar's user-mode anti-cheat and does NOT have BattlEye (unlike GTA Online, which got BattlEye in Sept 2024 and is blocked). RDO is not anti-cheat-blocked on Linux and connects via Proton."
         fix:
           type: info
-          value: "Red Dead Online does not work on Linux due to lack of
-                  anti-cheat support. Single-player mode works perfectly
-                  with the fixes above."
+          value: "Red Dead Online works on Linux/Proton - launch the normal Steam entry and pick Online. If the Rockstar launcher misbehaves, use Proton Experimental or a recent GE-Proton. It is not blocked by anti-cheat."
+          verified: false
+          source: "gamingonlinux.com/2024/09/grand-theft-auto-v-gets-battleye-anti-cheat-breaks-online-play-on-steam-deck-linux (retrieved 2026-07-15)"
 
   - name: "Monster Hunter World"
     steam_id: 582010
     aliases: ["mhw", "monster hunter"]
     issues:
-      - symptom: "Poor performance (below 40 FPS) even on capable hardware"
-        cause: "The game defaults to DirectX 11; forcing DirectX 12 via
-                VKD3D gives much better performance through Vulkan."
-        fix:
-          type: launch_option
-          value: "PROTON_USE_VKD3D=1 %command%"
-
-      - symptom: "Crashes with mods (Stracker's Loader, Performance Booster)"
-        cause: "Mod loaders require specific DLL overrides and .NET runtime
-                to function under Proton."
+      - symptom: "Poor performance / low FPS (under ~40) - the game feels CPU-limited"
+        cause: "MHW's engine is heavily CPU-bound. Forcing vkd3d with PROTON_USE_VKD3D=1 is NOT the fix: MHW ships DX11 (DXVK) by default and its DX12 path is an in-engine toggle, not an env var. PROTON_USE_VKD3D=1 is known to fail to switch MHW to DX12 (Proton issue #3795) and can leave you worse off."
         fix:
           type: info
-          value: "Use GE-Proton10-34 or newer. Install dependencies:
-                  protontricks 582010 dotnetdesktop8 d3dcompiler_47
-                  Then use: WINEDLLOVERRIDES=\"msvcrt,dinput8=n,b\" mangohud %command%"
+          value: "Do not force PROTON_USE_VKD3D. Choose DirectX 11 or DirectX 12 in the in-game Graphics options (DX11 is the safe default on NVIDIA) and turn Volumetric Lighting to Low/Off. On CachyOS you can wrap the game with the perf governor via 'game-performance %command%'."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/3795 (retrieved 2026-07-15)"
 
-      - symptom: "Shader cache stutters in dense areas"
-        cause: "MHW compiles many DX11 shaders on-the-fly; the default
-                cache size is too small."
+      - symptom: "Crashes on launch or mods fail to load with Stracker's Loader / SharpPluginLoader"
+        cause: "DLL-loader mods are not auto-loaded by Wine the way they are on Windows. Install the runtime deps once with 'protontricks 582010 dotnetdesktop8 d3dcompiler_47', then override the loader DLLs so Wine loads native ucrtbase (SharpPluginLoader) and dinput8 (Stracker's Loader). For Stracker's Loader alone, dinput8=n,b is enough."
         fix:
           type: launch_option
-          value: "MESA_SHADER_CACHE_MAX_SIZE=10G WINEDLLOVERRIDES=\"dinput8.dll=n,b\" game-performance mangohud %command%"
+          value: "WINEDLLOVERRIDES=\"ucrtbase,dinput8=n,b\" %command%"
+          verified: false
+          source: "fexty12573.github.io/SharpPluginLoader/Install/Installation.html (retrieved 2026-07-15)"
+
+      - symptom: "Shader-compilation stutter on the first playthrough or when entering new areas"
+        cause: "First-time DXVK/vkd3d pipeline compilation causes brief hitches until the on-disk shader cache is built. This is normal and clears as you play."
+        fix:
+          type: info
+          value: "Make sure Steam > Settings > Shader Pre-Caching is enabled and let the DXVK state cache build over the first hours of play. On Mesa GPUs (AMD/Intel) only, you can raise the cache with launch option 'MESA_SHADER_CACHE_MAX_SIZE=10G %command%'; this env var does nothing on the NVIDIA proprietary driver."
+          verified: false
+          source: "protondb.com/app/582010 (retrieved 2026-07-15)"
 
   - name: "Hogwarts Legacy"
     steam_id: 990080
     aliases: ["hogwarts", "hogwarts legacy"]
     issues:
-      - symptom: "Game crashes on startup or in certain cutscenes"
-        cause: "Hogwarts Legacy is sensitive to Proton version; older stable
-                Proton can crash where Experimental does not."
+      - symptom: "Frequent crashes on startup or during cutscenes"
+        cause: "Hogwarts Legacy (DX12-only, vkd3d-proton) is version-sensitive; a GE-Proton with updated vkd3d-proton is usually the most stable. Note: the game ships Denuvo anti-tamper (no anti-cheat), which allows only a limited number of Proton-version switches per 24h before a temporary activation lockout."
         fix:
           type: info
-          value: "Use Proton Experimental or GE-Proton for best stability.
-                  If crashes persist, try forcing Proton 9.0-4 which some
-                  users report as more stable for this title."
+          value: "Force a recent GE-Proton (Properties -> Compatibility) or current Proton Experimental/Proton 10 for the newest vkd3d-proton. Because Denuvo locks you out after too many hardware/Proton-version changes in 24h, pick one version and stick with it rather than cycling repeatedly. ProtonDB rates the game Gold (trending Platinum), no anti-cheat."
+          verified: false
+          source: "pcgamesn.com/hogwarts-legacy/denuvo-steam-harry-potter-game (retrieved 2026-07-15)"
 
-      - symptom: "Alt+Tab doesn't work — game window becomes unresponsive"
-        cause: "Fullscreen exclusive mode doesn't handle Wayland/X11
-                compositor focus changes well."
+      - symptom: "Crashes on loading screens / fast travel after ~30-60 min of play"
+        cause: "The DX12 renderer under vkd3d-proton exhausts the default memory-map area on some kernels; raising vm.max_map_count stops the fast-travel / loading-screen crash. Most modern distros (including CachyOS) already ship a high value."
         fix:
           type: info
-          value: "Play in borderless windowed mode instead of fullscreen
-                  exclusive. This is set in the in-game graphics options."
+          value: "Check the current limit with 'sysctl vm.max_map_count'. If it is the old default (65530), raise it to 1048576 via a sysctl drop-in in /etc/sysctl.d/. CachyOS and recent kernels already default to 1048576, in which case no change is needed and this is not your cause."
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2932332194 (retrieved 2026-07-15)"
+
+      - symptom: "Traversal / shader-compilation stutter when moving through new areas (the game's #1 complaint)"
+        cause: "Unreal Engine 4 compiles shaders and streams textures on the fly; the default texture-streaming pool is small, so hitching spikes as new geometry/NPCs load. This is engine-side and can only be reduced, not eliminated."
+        fix:
+          type: info
+          value: "Let Steam pre-compile shaders (Settings -> Downloads -> enable shader pre-caching) and launch once to build the cache. Then enlarge the texture pool: edit compatdata/990080/pfx/drive_c/users/steamuser/AppData/Local/HogwartsLegacy/Saved/Config/Windows/Engine.ini and add under [SystemSettings]: r.Streaming.PoolSize=2048 and r.Streaming.LimitPoolSizeToVRAM=1. Capping FPS (e.g. DXVK_FRAME_RATE=90 %command%) also smooths frame pacing."
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2933373087 (retrieved 2026-07-15)"
+
+      - symptom: "Severe stutter, texture pop-in or hard drops after prolonged play on an 8GB card"
+        cause: "At 1440p Ultra with ray tracing the game exceeds 8GB VRAM and spills into shared system memory, causing progressive slowdown; the RTX 2070 SUPER has exactly 8GB."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "On 8GB GPUs turn Ray Tracing OFF (small visual gain here, large VRAM/CPU cost), keep Textures at High rather than Ultra, and use DLSS Quality plus an FPS cap to stay under the VRAM ceiling. Reports show a stable ~60 FPS on RTX 2070 SUPER 8GB with RT off."
+          verified: false
+          source: "steamcommunity.com/app/990080/discussions/0/3771239453237957113 (retrieved 2026-07-15)"
+
+      - symptom: "Alt+Tab leaves the game unresponsive or fails to restore"
+        cause: "Exclusive fullscreen handles compositor focus changes poorly under Proton, and especially on Wayland where a true exclusive-fullscreen mode-switch is emulated."
+        when: { session: wayland }
+        fix:
+          type: info
+          value: "Set the display mode to Borderless Windowed in the in-game graphics options instead of Fullscreen. On Wayland this makes Alt+Tab and focus changes reliable with no measurable performance loss."
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2932332194 (retrieved 2026-07-15)"
 
   - name: "The Witcher 3: Wild Hunt"
     steam_id: 292030
     aliases: ["witcher 3", "tw3"]
     issues:
-      - symptom: "Game crashes frequently when using DirectX 12 renderer"
-        cause: "The DX12 renderer in the next-gen update is unstable under
-                Proton; DX11 is more reliable."
-        fix:
-          type: info
-          value: "Select DirectX 11 in the launcher instead of DirectX 12.
-                  The DX12 path crashes frequently under Proton while DX11
-                  is rock-solid."
-
-      - symptom: "REDlauncher appears every time, delaying game start"
-        cause: "The next-gen update added a launcher wrapper that adds
-                an extra click."
+      - symptom: "The CD Projekt RED launcher opens on every start and under Proton can hang, show a black/empty window, or fail to hand off to the game"
+        cause: "The next-gen update added a flaky secondary Qt launcher. --launcher-skip boots the game directly. NOTE: --launcher-skip always starts the DX12 renderer, ignoring any DX11 choice saved in the launcher."
         fix:
           type: launch_option
           value: "%command% --launcher-skip"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2902047062 (retrieved 2026-07-15)"
 
-      - symptom: "Frame generation (DLSS/FSR FG) causes choppiness and crashes"
-        cause: "Frame generation under Proton/DXVK is not fully stable
-                with the Witcher 3's DX12 renderer."
+      - symptom: "DX12 renderer stutters and, with ray tracing enabled, the game locks up when opening the world map, Gwent, or other menus"
+        cause: "vkd3d-proton D3D12 translation plus the next-gen RT path is heavy and buggy on Proton; DX11 avoids RT entirely and is lighter on the CPU."
         fix:
           type: info
-          value: "Disable frame generation in the in-game settings. Use
-                  standard FSR or DLSS upscaling instead. If using DX12,
-                  also disable 'Cross Progression' in gameplay settings
-                  to prevent crashes."
+          value: "For the most stable run pick 'DirectX 11' in the launcher (no RT, easier on the CPU). If you also use --launcher-skip you MUST edit launcher-configuration.json in the game's install folder and set the fallback value to DirectX 11, because --launcher-skip otherwise forces DX12."
+          verified: false
+          source: "vintageisthenewold.com/faq/how-to-use-dx11-instead-of-dx12-witcher-3 (retrieved 2026-07-15)"
+
+      - symptom: "In DX12 with ray tracing on, the game freezes/locks up on the map and Gwent screens"
+        cause: "Frame-pacing bug in vkd3d-proton with RT menus; Hairworks and RT ambient occlusion are also known to crash the NVIDIA GPU."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "VKD3D_FRAME_RATE=120 %command%"
+          verified: false
+          source: "protondb.com/app/292030 (retrieved 2026-07-15)"
+
+      - symptom: "The in-game DLSS Frame Generation option is missing or greyed out"
+        cause: "DLSS 3 Frame Generation is exclusive to RTX 40-series (Ada); the RTX 2070 SUPER (Turing) cannot use it, so there is nothing to disable. Normal DLSS and FSR upscaling still work."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Ignore Frame Generation on RTX 20/30 cards - it is unavailable by hardware. Use plain DLSS or FSR upscaling for extra performance instead."
+          verified: false
+          source: "nvidia.com/en-us/geforce/news/witcher-3-wild-hunt-dlss-rtx-ray-tracing-free-update-out-now (retrieved 2026-07-15)"
+
+      - symptom: "Script Merger and The Witcher 3 Mod Manager tools don't detect the game or won't run"
+        cause: "These Windows utilities must run inside the same Proton prefix as the game; next-gen and classic mods are also not interchangeable."
+        fix:
+          type: info
+          value: "Run the mod tools through the same Proton prefix (add the .exe as a non-Steam game and force the same Proton), or use the CLI w3scriptmerge on Linux. Only install next-gen (4.0x) versions of mods."
+          verified: false
+          source: "github.com/apocalyptech/w3scriptmerge (retrieved 2026-07-15)"
+
+      - symptom: "On a 21:9/ultrawide monitor cutscenes show black bars and the HUD is desynced"
+        cause: "The next-gen build pillarboxes cutscenes and mis-scales the HUD at non-16:9 aspect ratios."
+        fix:
+          type: info
+          value: "Apply the NextGen ultrawide 'No Black Bars' patch (ships a Linux build) to unlock cutscenes; adjust HUD via uiHorizontalFrameScale in dx12user.settings (user.settings for DX11)."
+          verified: false
+          source: "github.com/mrHalfer/The-Witcher-3-Ultrawide-NoBlackBars-Fix-NextGen (retrieved 2026-07-15)"
 
   - name: "Fallout 4"
     steam_id: 377160
     aliases: ["fallout 4", "fo4"]
     issues:
-      - symptom: "Game crashes on startup or mods fail to load"
-        cause: "Fallout 4's Script Extender (F4SE) and mods need specific
-                DLL overrides to work under Proton."
+      - symptom: "Game crashes on startup or won't launch after the 'next-gen' update, or after a Proton/game update"
+        cause: "The April 2024 next-gen update (and later patches) broke the launcher and the built-in F4SE path; a stale Proton prefix or too-new Proton also causes instant crashes to desktop."
         fix:
           type: info
-          value: "Use Proton Experimental or GE-Proton. For modding,
-                  install F4SE and set:
-                  WINEDLLOVERRIDES=\"dinput8=n,b\" %command%
-                  Install .NET via protontricks if mods require it."
+          value: "In Steam > Fallout 4 > Properties > Compatibility, force a known-good Proton (Proton 9.0-3 is widely reported stable; Proton Experimental or GE-Proton also work). If it still crashes, delete the prefix at steamapps/compatdata/377160/ and relaunch so Proton rebuilds it. If the next-gen update itself breaks your mod list, the community 'Fallout 4 Downgrader' (Nexus 81630) rolls back to v1.10.163."
+          verified: false
+          source: "steamcommunity.com/app/377160/discussions/0/4634861275507099591 (retrieved 2026-07-15)"
+
+      - symptom: "F4SE installed but script-extender mods do nothing / MCM, Buffout, most major mods have no effect"
+        cause: "Launching Fallout4.exe or the normal Steam Play button never starts the script extender. F4SE only loads when f4se_loader.exe is the process that runs, so the game silently ignores it under Proton."
+        fix:
+          type: info
+          value: "Extract F4SE into the Fallout 4 folder, then make Steam run the loader: rename Fallout4Launcher.exe to Fallout4Launcher_bak.exe and rename f4se_loader.exe to Fallout4Launcher.exe, then launch normally through Steam. Verify in-game via the console (~) with getf4seversion. (With Mod Organizer 2 on Linux, instead add f4se_loader.exe as an MO2 executable and launch through MO2 - no renaming needed.)"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2522658777 (retrieved 2026-07-15)"
+
+      - symptom: "xSE PluginPreloader plugins (e.g. Buffout 4, Baka frameworks) fail to preload even though F4SE itself works"
+        cause: "The preloader ships as a proxy IpHlpAPI.dll; Wine loads its own builtin iphlpapi instead, so the injector never runs."
+        fix:
+          type: launch_option
+          value: "WINEDLLOVERRIDES=\"iphlpapi=n,b\" %command%"
+          verified: false
+          source: "nexusmods.com/fallout4/mods/33946 (retrieved 2026-07-15)"
+
+      - symptom: "Loose-file mods (textures, meshes, script mods) installed manually do not show up in game"
+        cause: "Archive invalidation is off by default; the engine only reads packed BA2s until Fallout4Custom.ini enables loose-file loading."
+        fix:
+          type: file
+          path: "~/.steam/steam/steamapps/compatdata/377160/pfx/drive_c/users/steamuser/Documents/My Games/Fallout4/Fallout4Custom.ini"
+          content: |
+            [Archive]
+            bInvalidateOlderFiles=1
+            sResourceDataDirsFinal=
+          verified: false
+          source: "nexusmods.com/fallout4/mods/59305 (retrieved 2026-07-15)"
+
+      - symptom: "Heavily-modded install crashes at the black screen just before the main menu"
+        cause: "Fallout 4's engine has a hard limit of ~256 'General' BA2 archives (and ~255 texture BA2s); exceeding it crashes on load. Easy to hit with large mod lists."
+        fix:
+          type: info
+          value: "Keep total BA2 count under the limit by merging/packing mods into fewer archives, or install an archive-limit-fix mod that raises the loadable-archive cap. Watch for BSRender/ImageSpace errors in crash logs when the texture-archive limit is the cause."
+          verified: false
+          source: "nexusmods.com/fallout4/articles/6251 (retrieved 2026-07-15)"
 
   - name: "The Elder Scrolls V: Skyrim Special Edition"
     steam_id: 489830
     aliases: ["skyrim", "skyrim se", "sse"]
     issues:
-      - symptom: "Controller not detected (especially 8bitdo controllers)"
-        cause: "Proton's SDL controller handling doesn't always pass
-                through gamepad input without an explicit SDL hint."
+      - symptom: "8BitDo (and other third-party) controller is not detected in-game, even though it works on the desktop and in Steam Big Picture"
+        cause: "This is a Steam Input / SDL problem, not a Proton env-var one. There is no valid PROTON_USE_SDL variable in Proton - the AI-generated PROTON_USE_SDL=1 does nothing. On recent SDL, Steam Input can grab the pad and stop the game from seeing it; toggling Steam Input for the game (and updating Proton) is the actual fix."
         fix:
-          type: launch_option
-          value: "PROTON_USE_SDL=1 %command%"
+          type: info
+          value: "In Steam, right-click the game -> Properties -> Controller, and switch 'Override for Skyrim Special Edition' between 'Enable Steam Input' and 'Disable Steam Input' (test both). Put the 8BitDo dongle/pad in Xinput mode, and use Proton 9.0+ / Experimental, which contains 8BitDo hotplug fixes. Do NOT use PROTON_USE_SDL=1 - it is not a real Proton variable."
+          verified: false
+          source: "github.com/libsdl-org/SDL/issues/15293 (retrieved 2026-07-15)"
 
-      - symptom: "SKSE (Skyrim Script Extender) mods fail — no dialogue audio or music"
-        cause: "SKSE needs native dinput8 override; without it, audio mods
-                and script-dependent content break."
+      - symptom: "Mods that ship as dinput8.dll (ASI loaders, ENB helper hooks, some SKSE plugin wrappers) fail to load"
+        cause: "Proton does not treat a game-folder dinput8.dll as an overridable native DLL by default, so the mod's DLL is ignored. Forcing the native-then-builtin override makes Proton load it. NOTE: this override does NOT launch SKSE and does NOT fix audio - the AI entry conflated three separate issues."
         fix:
           type: launch_option
           value: "WINEDLLOVERRIDES=\"dinput8=n,b\" %command%"
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/7974 (retrieved 2026-07-15)"
 
-      - symptom: "UI spans wrong monitor in multi-monitor setups"
-        cause: "Skyrim renders its UI at a fixed resolution and can place it
-                on the wrong display in multi-monitor configs."
+      - symptom: "No audio, or missing NPC voices / dialogue, in modded Skyrim SE under Proton"
+        cause: "Proton's built-in xaudio2 does not always play the game's XWM/voice audio correctly; forcing the native xaudio2_7 restores sound. This is distinct from the dinput8/SKSE issues."
+        fix:
+          type: launch_option
+          value: "WINEDLLOVERRIDES=\"xaudio2_7=n,b\" %command%"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3015864513 (retrieved 2026-07-15)"
+
+      - symptom: "SKSE-based mods do nothing / SKSE reports it is not running, even after setting the dinput8 override"
+        cause: "SKSE is only active if the game is started via skse64_loader.exe instead of SkyrimSELauncher.exe. The dinput8 override alone never starts SKSE. The sed launch method uses a shell pipe, so it is documented here as info rather than a launch_option."
         fix:
           type: info
-          value: "Use gamescope to force the game onto your primary display:
-                  gamescope -f -W 1920 -H 1080 -- %command%
-                  Or set the primary monitor in your DE before launching."
+          value: "Method A (launch option, uses a shell so set it manually): echo \"%command%\" | sed 's/SkyrimSELauncher.exe/skse64_loader.exe/' | sh . Method B (no shell): in the game folder, copy skse64_loader.exe and rename the copy to SkyrimSELauncher.exe, then launch normally (do NOT rename it to Skyrim.exe - that breaks SKSE/LOOT detection). Confirm in-game with the console command 'getskseversion'."
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3478819265 (retrieved 2026-07-15)"
+
+      - symptom: "SKSE plugins fail to load with 'Address Library needs to be updated' or version-mismatch errors"
+        cause: "Not a Linux issue but frequently misdiagnosed as one. Since the Dec-2023 next-gen update the game exe, SKSE64 build, and Address Library must all match. Mixing a next-gen game with old-format plugins makes SKSE plugins refuse to load."
+        fix:
+          type: info
+          value: "Match all three: game version, the SKSE64 build for that version, and the correct Address Library. If your mods target 1.5.97 or 1.6.640, downgrade the game to that build; otherwise use current SKSE + the 1.6.1170 Address Library. Also watch the BA2 archive limit - loading too many BA2s crashes at the main menu regardless of OS."
+          verified: false
+          source: "nexusmods.com/skyrimspecialedition/mods/32444 (retrieved 2026-07-15)"
+
+      - symptom: "In fullscreen the game/UI spans or lands on the wrong monitor in a multi-monitor setup"
+        cause: "Bethesda's fullscreen picks the wrong output on multi-head Wayland. Wrapping the game in gamescope confines it to one virtual output on the intended resolution; the gamescope wrapper prefix is shell-free."
+        when: { session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f -W 1920 -H 1080 -- %command%"
+          verified: false
+          source: "forum.level1techs.com/t/gamescope-goes-to-the-wrong-display/227970 (retrieved 2026-07-15)"
+
+      - symptom: "Multi-monitor cursor escapes to the other screen / prefer an in-game fix over gamescope"
+        cause: "SSE Display Tweaks provides borderless-fullscreen, keeps the window locked to the monitor it started on, and fixes the runaway-cursor glitch. It is a normal SKSE mod and works under Proton, avoiding gamescope's NVIDIA/Wayland quirks."
+        fix:
+          type: info
+          value: "Install SSE Display Tweaks (requires SKSE) and set Borderless=true plus the fixed-window-position option in SSEDisplayTweaks.ini. Use this instead of the gamescope wrapper if gamescope causes focus/cursor issues on your NVIDIA+Wayland setup."
+          verified: false
+          source: "nexusmods.com/skyrimspecialedition/mods/34705 (retrieved 2026-07-15)"
 
   - name: "No Man's Sky"
     steam_id: 275850
     aliases: ["nms", "no mans sky"]
     issues:
-      - symptom: "Stuttering during flight and planet transitions"
-        cause: "Shader compilation stutter from the Vulkan renderer building
-                pipelines on the fly; the shader cache is large."
+      - symptom: "Micro-stutter / hitching when flying and during planet-atmosphere transitions, especially the first time you visit a new area"
+        cause: "No Man's Sky renders with its own native Vulkan backend, so new pipelines compile on first use. Mesa (RADV/ANV) caches these on disk, but the default cache cap evicts entries and forces recompiles. Raising MESA_SHADER_CACHE_MAX_SIZE keeps the cache. NOTE: MESA_SHADER_CACHE_* is Mesa-only and has no effect on the NVIDIA proprietary driver."
+        when: { gpu: amd }
         fix:
           type: launch_option
           value: "MESA_SHADER_CACHE_MAX_SIZE=10G gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/275850 (retrieved 2026-07-15)"
+
+      - symptom: "DLSS option missing or greyed out in the graphics menu on NVIDIA, leaving the GPU overloaded and causing frame-pacing stutter"
+        cause: "The game gates DLSS behind NVAPI. Under Proton the NVIDIA GPU/NVAPI must be exposed so the in-game DLSS toggle appears. On an RTX 2070 SUPER only DLSS Super Resolution is available (DLSS 3 Frame Generation needs RTX 40-series)."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "PROTON_ENABLE_NVAPI=1 PROTON_HIDE_NVIDIA_GPU=0 %command%"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2592864914 (retrieved 2026-07-15)"
+
+      - symptom: "Black screen, empty/transparent window, or an immediate drop to desktop on the first launch attempt"
+        cause: "A known Vulkan-init race under Proton, compounded on Wayland by an XWayland empty-window bug that Proton Experimental fixed in March 2025. It usually succeeds on the second launch."
+        fix:
+          type: info
+          value: "Set Compatibility to Proton Experimental (or latest Proton-GE), then just launch again if the first attempt shows a black/empty window."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/1034 (retrieved 2026-07-15)"
+
+      - symptom: "Game stops launching or breaks under Proton shortly after a No Man's Sky update"
+        cause: "No Man's Sky updates frequently and often lands ahead of stable Proton. Valve ships targeted NMS fixes in Proton Experimental, so keeping the title on Experimental after an update restores compatibility fastest."
+        fix:
+          type: info
+          value: "Keep No Man's Sky on Proton Experimental so post-update Proton fixes apply automatically; if still broken, try the latest Proton-GE."
+          verified: false
+          source: "steamdeckhq.com/news/proton-experimental-gets-no-mans-sky-fixes (retrieved 2026-07-15)"
 
   - name: "Dark Souls III"
     steam_id: 374320
     aliases: ["ds3", "dark souls 3"]
     issues:
-      - symptom: "Controller not detected (especially non-Xbox controllers)"
-        cause: "Proton's SDL controller handling doesn't detect some
-                controllers (e.g. 8bitdo) without an explicit hint."
+      - symptom: "Controller not detected in-game"
+        cause: "Steam Input intercepts the pad before Dark Souls III's native XInput/DirectInput sees it; this, not a missing Proton variable, is the usual cause on Linux."
+        fix:
+          type: info
+          value: "Right-click the game -> Properties -> Controller and set 'Override for Dark Souls III' to 'Disable Steam Input', then fully restart Steam. DS3 has native controller support and works best when Steam Input is off. Only fall back to PROTON_USE_SDL=1 for generic/PS4-clone pads (see next entry)."
+          verified: false
+          source: "steamcommunity.com/app/374320/discussions/0/1626286205710527611 (retrieved 2026-07-15)"
+
+      - symptom: "Camera drifts/rotates on its own, or a generic/PS4-clone pad is misread"
+        cause: "Some third-party or PS4-clone controllers are handled incorrectly by Proton's default input path; forcing SDL mapping fixes the self-rotating camera and detection."
         fix:
           type: launch_option
           value: "PROTON_USE_SDL=1 %command%"
+          verified: false
+          source: "protondb.com/app/374320 (retrieved 2026-07-15)"
 
-      - symptom: "FPS drops below 60 in dense areas at high resolution"
-        cause: "DX11 shader compilation is heavy; the default Proton
-                version may not be optimal for this title."
+      - symptom: "FPS drops, stutter, or bad frame pacing"
+        cause: "DS3 is capped at 60 FPS and is sensitive to Proton frame pacing; some Proton builds regress performance. GameMode plus a good Proton build stabilizes frametimes."
+        fix:
+          type: launch_option
+          value: "gamemoderun mangohud %command%"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3033813503 (retrieved 2026-07-15)"
+
+      - symptom: "Persistent stutter on one Proton version"
+        cause: "Performance varies a lot between Proton builds for this game; switching builds often resolves frame-pacing/stutter regressions."
         fix:
           type: info
-          value: "Use GE-Proton10-34 or Proton 9.0-4 for best performance.
-                  Add: gamemoderun mangohud %command%
-                  for frame pacing improvements."
+          value: "If frametimes are unstable, try a recent GE-Proton build or Proton 9.0-4; if problems persist, older stable builds (e.g. Proton 7.0-3) have fixed frame pacing for some users. Test per-machine - there is no single best build."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/478 (retrieved 2026-07-15)"
 
-      - symptom: "Window focus issues after Alt+Tab on GNOME"
-        cause: "GNOME's Wayland compositor doesn't restore focus to the
-                fullscreen Proton window properly after Alt+Tab."
+      - symptom: "Cannot Alt+Tab / window loses focus (Wayland)"
+        cause: "Exclusive-fullscreen focus handling under Wayland compositors can trap or drop the game's input focus when switching windows."
+        when: { session: wayland }
+        fix:
+          type: launch_option
+          value: "gamescope -f -- %command%"
+          verified: false
+          source: "protondb.com/app/374320 (retrieved 2026-07-15)"
+
+      - symptom: "Alt+Tab focus issues, alternative without gamescope (Wayland)"
+        cause: "Same fullscreen focus problem; running the game in Borderless windowed mode instead of Fullscreen avoids the compositor focus trap."
         when: { session: wayland }
         fix:
           type: info
-          value: "Use gamescope to isolate the window:
-                  gamescope -f -- %command%
-                  Or play in borderless windowed mode."
+          value: "In-game Options -> Display, set Screen Mode to 'Borderless' (windowed) instead of 'Fullscreen'. This lets the Wayland compositor handle Alt+Tab normally without needing gamescope."
+          verified: false
+          source: "protondb.com/app/374320 (retrieved 2026-07-15)"
+
+      - symptom: "Will I get banned playing online on Linux/Proton?"
+        cause: "DS3 uses FromSoftware's own memory-integrity anti-cheat (not EAC/BattlEye), which some users feared would flag Proton. In practice it does not - bans come from save/memory modification and cheat tools, not from running under Proton."
+        fix:
+          type: info
+          value: "Vanilla online play (co-op summons and invasions) works on Linux/Proton and the game is Steam Deck Verified. Do NOT run save editors, Cheat Engine, or memory-injecting mods while online, as those trigger the soft-ban. The Seamless Co-op mod requires you play offline from official matchmaking. If wrongly soft-banned, Bandai Namco support can lift it."
+          verified: false
+          source: "steamcommunity.com/app/374320/discussions/0/361787186422972054 (retrieved 2026-07-15)"
 
   - name: "Doom Eternal"
     steam_id: 782330
     aliases: ["doom eternal"]
     issues:
-      - symptom: "Bethesda login screen blocks startup or loops endlessly"
-        cause: "The Bethesda sign-in manager requires network access to
-                api.bethesda.net which can fail under Proton."
+      - symptom: "Game blocks or hangs at startup on the Bethesda.net sign-in manager"
+        cause: "DOOM Eternal opens a Bethesda account sign-in step before the campaign loads; under Proton this can stall or require an unwanted login. Bethesda.net linking is optional and can be skipped. The +com_skipSignInManager 1 console flag is still valid in the current idTech 7 build."
         fix:
           type: launch_option
           value: "%command% +com_skipIntroVideo 1 +com_skipSignInManager 1"
+          verified: false
+          source: "pcgamingwiki.com/wiki/Doom_Eternal (retrieved 2026-07-15)"
 
-      - symptom: "Intro videos play every launch with no way to skip"
-        cause: "The game doesn't expose a skip option in its menus; the
-                console command must be passed as a launch option."
+      - symptom: "Intro / logo videos play on every launch"
+        cause: "+com_skipIntroVideo 1 still skips the studio-logo movies, but after the mid-2025 idTech mod-launcher update this flag has become unreliable on its own. The fully reliable method is to rename or delete base/video/boot_sequence/Boot_Sequence.bk2 in the game install folder."
         fix:
           type: launch_option
           value: "%command% +com_skipIntroVideo 1"
+          verified: false
+          source: "steamcommunity.com/app/782330/discussions/0/2148721013128505604 (retrieved 2026-07-15)"
 
-      - symptom: "No HDR or Wayland support with default Proton"
-        cause: "Default Proton doesn't enable Wayland or HDR; recent
-                Proton builds support both via environment variables."
+      - symptom: "No HDR / running on X11 (XWayland) instead of native Wayland"
+        cause: "PROTON_ENABLE_WAYLAND=1 and PROTON_ENABLE_HDR=1 are real current Proton variables, BUT idTech games including DOOM Eternal are known to FLICKER with the native Wayland window + HDR combination. Do NOT blindly set these for this game."
         when: { session: wayland }
         fix:
-          type: launch_option
-          value: "PROTON_ENABLE_WAYLAND=1 PROTON_ENABLE_HDR=1 %command% +com_skipIntroVideo 1"
+          type: info
+          value: "For HDR, prefer gamescope (gamescope --hdr-enabled -- %command%) or a recent GE-Proton build. Setting PROTON_ENABLE_WAYLAND=1 PROTON_ENABLE_HDR=1 directly is known to cause flickering in idTech games like DOOM Eternal."
+          verified: false
+          source: "discuss.cachyos.org/t/proton-enable-wayland-and-hdr-makes-idtech-games-flickering/24450 (retrieved 2026-07-15)"
+
+      - symptom: "Worry that DOOM Eternal's anti-cheat blocks it on Linux"
+        cause: "Historical only. Denuvo Anti-Cheat (kernel-level, added for BattleMode on 2020-05-14) was REMOVED on 2020-05-27 after backlash, and Denuvo Anti-Tamper DRM was removed on 2023-09-05. The current build ships with NO anti-cheat and NO Denuvo. It is Vulkan-only and runs well on Proton."
+        fix:
+          type: info
+          value: "DOOM Eternal has had no anti-cheat since May 2020 and no Denuvo DRM since Sept 2023. BattleMode multiplayer plays fine under Proton. Nothing to disable."
+          verified: false
+          source: "gamingonlinux.com/2020/05/denuvo-anti-cheat-is-doomed (retrieved 2026-07-15)"
 
   - name: "Doom (2016)"
     steam_id: 379720
     aliases: ["doom 2016", "doom"]
     issues:
-      - symptom: "Game won't open or crashes immediately on launch"
-        cause: "Doom 2016 requires specific Proton version and launch
-                options to start under Proton; the default version fails."
+      - symptom: "Graphics flicker, tearing, or half performance; game runs on the slower OpenGL renderer by default"
+        cause: "DOOM ships both an OpenGL and a Vulkan renderer. OpenGL is buggy under Proton (flickering) and slower; Vulkan gives essentially native performance. This is the single biggest DOOM-on-Linux fix."
+        fix:
+          type: launch_option
+          value: "%command% +r_renderAPI 1"
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/201 (retrieved 2026-07-15)"
+
+      - symptom: "Game hangs on a black 'DOOM Console' window or fails to start right after switching to Vulkan"
+        cause: "First Vulkan launch rebuilds the shader cache and can hang, or a bad renderer value gets stuck. Value -1 resets renderer auto-detection; alternatively force OpenGL with 0, set the API from the in-game Advanced Video menu, then remove the option."
+        fix:
+          type: launch_option
+          value: "%command% +r_renderAPI -1"
+          verified: false
+          source: "steamcommunity.com/app/379720/discussions/0/358417461605845474 (retrieved 2026-07-15)"
+
+      - symptom: "Whole system freezes/crashes when Vulkan is enabled and the Steam overlay is on"
+        cause: "Known conflict between DOOM's Vulkan renderer and the Steam in-game overlay under Proton."
         fix:
           type: info
-          value: "Use Proton 9.0-4 or GE-Proton. The game needs a specific
-                  Proton version - newer is not always better for this title."
+          value: "If DOOM freezes the system on Vulkan, disable the Steam in-game overlay for this title (Properties -> General -> uncheck 'Enable the Steam Overlay while in-game'). Also verify game files if it still won't launch."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/2974 (retrieved 2026-07-15)"
 
-      - symptom: "Game uses integrated GPU instead of dedicated GPU (laptops)"
-        cause: "Doom 2016 doesn't always detect the dGPU on hybrid laptops;
-                an explicit PRIME render offload variable fixes it."
+      - symptom: "On a laptop, DOOM renders on the integrated GPU instead of the NVIDIA dGPU (very low FPS or Vulkan won't init)"
+        cause: "On NVIDIA Optimus laptops DOOM can pick the wrong GPU. PRIME render offload forces the NVIDIA card. Niche: only for hybrid-graphics laptops - not needed on a desktop with a single dGPU."
+        when: { gpu: nvidia }
         fix:
           type: launch_option
           value: "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia %command%"
+          verified: false
+          source: "forums.developer.nvidia.com/t/doom-2016-vulkan-renderer-is-broken-since-440-drivers-optimus/160332 (retrieved 2026-07-15)"
 
-      - symptom: "Multi-monitor setups cap FPS at 60 or don't display properly"
-        cause: "The game's fullscreen mode interacts poorly with
-                multi-monitor configurations."
+      - symptom: "On a multi-monitor Wayland setup the game is capped to a low/60 Hz refresh or stutters in fullscreen"
+        cause: "Wayland compositors can limit a fullscreen game to the lowest-refresh output. Running DOOM inside a nested gamescope session gives it a dedicated output at the chosen resolution/refresh. Adjust -r to your monitor's actual refresh."
+        when: { session: wayland }
         fix:
-          type: info
-          value: "Use gamescope to force a single display mode:
-                  gamescope -f -W 1920 -H 1080 -r 144 -- %command%
-                  Avoid disabling monitors in display settings - this can
-                  disable the GPU output port entirely."
+          type: launch_option
+          value: "gamescope -f -W 1920 -H 1080 -r 144 -- %command%"
+          verified: false
+          source: "github.com/ValveSoftware/gamescope (retrieved 2026-07-15)"
 
   - name: "Sekiro: Shadows Die Twice"
     steam_id: 814380
     aliases: ["sekiro"]
     issues:
-      - symptom: "Game crashes on startup or during gameplay"
-        cause: "Sekiro is sensitive to Proton version; certain Proton
-                builds crash while others work."
+      - symptom: "Crashes on startup or a few seconds into gameplay, especially on a desktop with a monitor that exposes many resolutions or refresh rates"
+        cause: "Sekiro chokes when the display exposes too many possible resolutions/modes. A Proton 7-era hack that worked around this was dropped, then reinstated in Proton 10. Older/mismatched runtimes reintroduce the crash."
         fix:
           type: info
-          value: "Use GE-Proton10-34 or Proton Experimental. If crashes
-                  persist, try Proton 9.0-4 which is reported as more
-                  stable for this title."
+          value: "Set the game's compatibility tool to Proton 10 (or Proton Experimental / GE-Proton 10) - Proton 10 reinstated the FromSoftware 'too many resolutions' crash hack. Avoid pinning old runtimes like Proton 9.0-x, where this crash was reported. No bleeding-edge GE build is required; the game is ProtonDB Platinum on current official Proton."
+          verified: false
+          source: "gamingonlinux.com/2025/08/proton-10-0-2d-beta-released-with-a-few-small-fixes (retrieved 2026-07-15)"
 
-      - symptom: "Controller not detected"
-        cause: "Proton's SDL controller handling doesn't detect some
-                controllers without an explicit hint."
+      - symptom: "Controller (DualSense/DualShock/generic pad) not detected; only keyboard responds"
+        cause: "Steam Input's hidraw handling conflicts with how Sekiro enumerates gamepads. Forcing Proton's SDL controller backend and turning off Steam Input for this title resolves it."
         fix:
           type: launch_option
-          value: "PROTON_USE_SDL=1 %command%"
+          value: "PROTON_PREFER_SDL=1 %command%"
+          verified: false
+          source: "wiki.cachyos.org/configuration/gaming (retrieved 2026-07-15)"
+
+      - symptom: "Game is hard-locked to 60 FPS; want an unlocked frame rate on a high-refresh display"
+        cause: "Sekiro caps itself at 60 FPS by design. It is single-player and ships only FromSoftware's internal anti-tamper thread (not online EAC/BattlEye), so frame-unlock mods are safe under Proton."
+        fix:
+          type: info
+          value: "For an unlocked frame rate on Linux use Lahvuun's native 'sekirofpsunlock' (drop the binary in the game folder, grant it ptrace with 'sudo setcap CAP_SYS_PTRACE=+eip sekirofpsunlock', then launch it alongside the game). No anti-cheat workaround is needed. Note the game's physics are frame-rate tied, so very high FPS can affect behavior; 60/120 caps are safest. Some traversal stutter between regions is inherent to the engine."
+          verified: false
+          source: "github.com/Lahvuun/sekirofpsunlock (retrieved 2026-07-15)"
 
   - name: "Terraria"
     steam_id: 105600
     aliases: ["terraria"]
     issues:
-      - symptom: "Audio is broken or missing (native version)"
-        cause: "The native Linux build has a known SDL audio bug where
-                audio devices aren't detected properly."
+      - symptom: "No sound in the native Linux build, or audio works at launch then goes silent after a minute (worse since 1.4.5)"
+        cause: "Terraria is FNA-based and its OpenAL/SDL audio backend fails to bind to PipeWire's default output; the native SDL audio driver picks the wrong device."
         fix:
           type: launch_option
           value: "SDL_AUDIODRIVER=pulse %command%"
+          verified: false
+          source: "steamcommunity.com/app/105600/discussions/0/725776831304700113 (retrieved 2026-07-15)"
 
-      - symptom: "Multiplayer connectivity issues (native version)"
-        cause: "The native Linux build has networking quirks; running
-                through Proton uses the Windows networking stack which
-                is more compatible."
+      - symptom: "Native Linux audio still silent on a pure-PipeWire system even with SDL_AUDIODRIVER=pulse"
+        cause: "The 'pulse' SDL driver needs a PulseAudio-compatible endpoint; a PipeWire-only setup without the pulse shim has nothing to route to."
         fix:
           type: info
-          value: "If multiplayer fails on the native build, force Proton
-                  in Steam compatibility settings. Some users report better
-                  multiplayer stability through Proton than native."
+          value: "Install the 'pipewire-pulse' package so PulseAudio-targeting apps play through PipeWire, then relaunch. On 1.4.5.3+ the in-game equivalent is the launch flag /audiodriver:pulseaudio."
+          verified: false
+          source: "forums.terraria.org/index.php?threads/linux-1-4-5-all-game-audio-goes-silent.145972 (retrieved 2026-07-15)"
+
+      - symptom: "Assuming you must force the Windows build under Proton to play multiplayer with friends"
+        cause: "Misconception: all PC editions (Steam Windows, macOS, native Linux) share one netcode and play together on the same server/Steam invite."
+        fix:
+          type: info
+          value: "Keep the native Linux build for multiplayer - it connects to Windows and Mac Steam players and dedicated servers normally. Forcing Proton is unnecessary and reintroduces a known bug where keyboard input is doubled when typing chat or world/player names."
+          verified: false
+          source: "gamingonlinux.com/forum/topic/4691 (retrieved 2026-07-15)"
+
+  - name: "7 Days to Die"
+    steam_id: 251570
+    aliases: ["7dtd", "7 days to die"]
+    issues:
+      - symptom: "Multiplayer kicks you with an EAC / Easy Anti-Cheat violation, or EAC shows as disabled/unverified"
+        cause: "7 Days to Die ships a native Linux build whose EAC works, but running through Proton has broken EAC since Alpha 21 - Proton flags a file as unverified and disables EAC, so anticheat servers reject you."
+        fix:
+          type: info
+          value: "For EAC-protected multiplayer, run the NATIVE Linux build, not Proton. In Steam right-click the game -> Properties -> Compatibility and UNCHECK 'Force the use of a specific Steam Play compatibility tool'. The native client's EAC works; Proton's does not (Proton is only viable for single-player / EAC-off servers)."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/9697 (retrieved 2026-07-15)"
+
+      - symptom: "Black textures on zombie clothing / geometry, or poor performance on the native Linux client"
+        cause: "The native Unity build defaults to a GL renderer that on Linux produces black-texture bugs; the Vulkan backend renders correctly and generally performs better."
+        fix:
+          type: launch_option
+          value: "%command% -force-vulkan"
+          verified: false
+          source: "steamcommunity.com/app/251570/discussions/1/594032343582281424 (retrieved 2026-07-15)"
+
+      - symptom: "Render glitches - stretched/corrupt geometry on the native client when Vulkan is unstable on your GPU"
+        cause: "Letting Unity auto-pick the GL context on Linux causes corrupt rendering; forcing OpenGL 4.5 with clamped array behaviour fixes it as a fallback when Vulkan is jerky."
+        fix:
+          type: launch_option
+          value: "%command% -force-glcore45 -force-clamped"
+          verified: false
+          source: "steamcommunity.com/app/251570/discussions/0/3932159940147042029 (retrieved 2026-07-15)"
+
+      - symptom: "After changing in-game gamma the game won't launch; log shows 'Failed to initialize ScreenManager' / 'Invalid resolution'"
+        cause: "Adjusting gamma can corrupt the resolution values written to the Unity prefs file (common on multi-monitor setups), so the game aborts on startup."
+        fix:
+          type: info
+          value: "Edit ~/.config/unity3d/The Fun Pimps/7 Days To Die/prefs and find 'Screenmanager Resolution Width' and 'Screenmanager Resolution Height'. Replace any 0 / invalid numbers with your real display resolution (e.g. 2560 x 1440), save, and relaunch."
+          verified: false
+          source: "steamcommunity.com/app/251570/discussions/1/358416640397616913 (retrieved 2026-07-15)"
+
+  - name: "Hydroneer"
+    steam_id: 1106840
+    aliases: ["hydroneer"]
+    issues:
+      - symptom: "GPU runs at 100%, loud fans and coil whine, especially in menus"
+        cause: "Hydroneer (Unreal Engine 4) ships with an uncapped framerate and VSync off by default, so the GPU renders thousands of unnecessary frames. Under Proton this maps cleanly to a DXVK frame cap."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "DXVK_FRAME_RATE=60 %command%"
+          verified: false
+          source: "steamcommunity.com/app/1106840/discussions/0/2254559285368484873 (retrieved 2026-07-15)"
+
+      - symptom: "GPU maxing out and you prefer no launch option"
+        cause: "The game defaults to bUseVSync=False. Turning VSync on drops GPU load substantially (users reported 99% -> 60-89%)."
+        fix:
+          type: info
+          value: "Open in-game Settings -> Video and turn VSync On (and prefer Fullscreen over Borderless). This caps the framerate and stops the GPU running flat-out. Equivalent to setting bUseVSync=True in the game's GameUserSettings.ini."
+          verified: false
+          source: "steamcommunity.com/app/1106840/discussions/0/2254559285368484873 (retrieved 2026-07-15)"
+
+      - symptom: "Game fails to launch with a 'D3D11-compatible GPU' / D3D11 device creation error"
+        cause: "Almost always an outdated GPU driver or an old Proton build whose DXVK is too old for the current driver, not a Hydroneer bug. The developer confirmed the game runs fine on Proton."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Update your NVIDIA driver to a current release, then switch Hydroneer to Proton Experimental or a recent Proton-GE (right-click game -> Properties -> Compatibility). This resolves the D3D11 device-creation failure in nearly all reports."
+          verified: false
+          source: "steamcommunity.com/app/1106840/discussions/0/2254559285368708366 (retrieved 2026-07-15)"
+
+  - name: "Rust"
+    steam_id: 252490
+    aliases: ["rust"]
+    issues:
+      - symptom: "Rust launches under Proton but you get kicked / 'EAC: Disconnected' and can't join servers"
+        cause: "Facepunch has NOT enabled the EAC Proton/Linux runtime and has publicly stated it has no plans to. Official and nearly all community servers require EAC, so they reject Linux clients. The game boots, but multiplayer is blocked."
+        fix:
+          type: info
+          value: "Rust multiplayer does not work on Linux/Proton. EAC is Windows-only and Facepunch confirmed no plans to support Proton/Linux. You can launch the game and use the menu, but you will be disconnected from any EAC-protected server. Only offline/local non-EAC servers are playable - do not expect to play on public/official servers."
+          verified: false
+          source: "areweanticheatyet.com/game/rust (retrieved 2026-07-15)"
+
+      - symptom: "Frequent hitching/frame drops every few seconds while roaming"
+        cause: "Rust's Unity garbage collector pauses the game to reclaim memory in large chunks. A larger GC buffer reduces how often this stalls; forcing multithreaded D3D11 spreads rendering across cores."
+        fix:
+          type: launch_option
+          value: "%command% -gc.buffer 2048 -force-d3d11-no-singlethread"
+          verified: false
+          source: "iqondigital.com/learn/games/optimize-rust-performance (retrieved 2026-07-15)"
+
+      - symptom: "Stutter/freezes when new effects or areas load (shader compilation hitching)"
+        cause: "Shaders compile on the main thread the first time they are seen. Async DXVK shader compilation builds them in the background. Note: only takes effect on Proton-GE / DXVK-gplasync builds; mainline Proton ignores it (harmless otherwise)."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "DXVK_ASYNC=1 %command%"
+          verified: false
+          source: "protondb.com/app/252490 (retrieved 2026-07-15)"
+
+      - symptom: "Low/unstable FPS even on capable hardware; disabling shadows didn't help"
+        cause: "On Proton several users report the Unity shadow path is cheaper than the no-shadow fallback, so turning shadows ON can paradoxically raise and stabilize FPS."
+        fix:
+          type: info
+          value: "Counterintuitively, try ENABLING shadows in Rust's video settings on Proton. Multiple Linux users report a large, more stable FPS gain versus shadows off. Test both and keep whichever is smoother."
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3685398428 (retrieved 2026-07-15)"
+
+  - name: "Valheim"
+    steam_id: 892970
+    aliases: ["valheim"]
+    issues:
+      - symptom: "Choppy or capped framerate, incorrect rendering, or no sound on the native Linux build"
+        cause: "Valheim's native Linux Unity build (esp. its Vulkan renderer) is buggy on NVIDIA; the Windows build under Proton is more mature and usually faster."
+        fix:
+          type: info
+          value: "Prefer Proton over the native Linux build. Right-click Valheim -> Properties -> Compatibility -> 'Force the use of a specific Steam Play compatibility tool' and pick Proton 9.0 (or Proton-GE). This installs the Windows build, which most Linux/NVIDIA users report runs noticeably better than native."
+          verified: false
+          source: "protondb.com/app/892970 (retrieved 2026-07-15)"
+
+      - symptom: "Native Linux build crashes at launch or shows a black screen with cursor after the dev logos"
+        cause: "The native build's default renderer can fail on some NVIDIA driver setups; forcing an alternate graphics API often gets it to boot."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "-force-glcore32 %command%"
+          verified: false
+          source: "steamcommunity.com/app/892970/discussions/1/3192489172308507335 (retrieved 2026-07-15)"
+
+      - symptom: "Micro-stutter / brief freezes when new effects, lighting or terrain appear under Proton"
+        cause: "Unity games under Proton compile DXVK shaders on-the-fly on first appearance; async compilation hides the hitch. Requires a DXVK build with async (Proton-GE)."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "DXVK_ASYNC=1 %command%"
+          verified: false
+          source: "protondb.com/app/892970 (retrieved 2026-07-15)"
+
+      - symptom: "BepInEx mods (mod loader) do not load when running Valheim through Proton"
+        cause: "BepInEx hooks the game by overriding winhttp.dll; Proton must be told to prefer the native (BepInEx) DLL over the built-in one."
+        fix:
+          type: launch_option
+          value: "WINEDLLOVERRIDES=winhttp=n,b %command%"
+          verified: false
+          source: "docs.bepinex.dev/articles/advanced/proton_wine.html (retrieved 2026-07-15)"
+
+      - symptom: "Corrupted/hung settings or won't-launch that persists after verifying files"
+        cause: "Stale Unity player config/state under the user's home directory."
+        fix:
+          type: info
+          value: "Close the game, then delete or rename ~/.config/unity3d/IronGate/Valheim to reset settings and clear bad state. Local world saves live in .../Valheim/worlds_local, so back that subfolder up first if unsure, then relaunch."
+          verified: false
+          source: "steamcommunity.com/app/892970/discussions/1/601917691382664646 (retrieved 2026-07-15)"
+
+  - name: "Warframe"
+    steam_id: 230410
+    aliases: ["warframe"]
+    issues:
+      - symptom: "Launcher opens but never gets past 'Checking for updates'; the Play button stays disabled"
+        cause: "The 32-bit Warframe launcher/bootstrapper has trouble rendering and updating under older or stock Proton. Proton-GE carries Warframe-specific patches, and recent Proton (9/10) fixed launcher window rendering."
+        fix:
+          type: info
+          value: "In Steam Properties -> Compatibility, force a recent Proton: Proton-GE (GloriousEggroll) is recommended as it includes Warframe-specific patches, or Proton 9/10 which fixed launcher rendering. Avoid Proton 8 (exposes only DirectX 10 in the launcher). If still stuck, close the game and delete the download cache in the prefix, then relaunch."
+          verified: false
+          source: "steamcommunity.com/app/230410/discussions/0/4027969835236351686 (retrieved 2026-07-15)"
+
+      - symptom: "Launcher fails, shows a black window, or reports missing Vulkan/DirectX support"
+        cause: "The game is 64-bit but the launcher is 32-bit, so it checks for 32-bit Vulkan/driver libraries. If only 64-bit driver libs are installed, the launcher's API detection fails."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Install both 32-bit and 64-bit Vulkan driver libraries. On Arch/CachyOS with NVIDIA: enable multilib and install lib32-nvidia-utils and lib32-vulkan-icd-loader (plus vulkan-icd-loader), then restart Steam."
+          verified: false
+          source: "forums.warframe.com/topic/1295893-linux-steam-proton-directx-version-error (retrieved 2026-07-15)"
+
+      - symptom: "Game freezes or locks up randomly during missions with heavy effects (abilities, explosions)"
+        cause: "Warframe's GPU Particles feature is unstable under Proton on NVIDIA and can cause random GPU hangs; it generally works fine on AMD."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "In-game go to Options -> Display and set 'GPU Particles' to Off (or Low). This is the most-reported fix for random freezes on NVIDIA under Proton."
+          verified: false
+          source: "protondb.com/app/230410 (retrieved 2026-07-15)"
+
+      - symptom: "Bad frame pacing, stutters, or the game slows down / hitches over time"
+        cause: "Warframe's VSync 'Auto' behaves poorly under Proton, and an uncapped framerate can cause slowdowns."
+        fix:
+          type: info
+          value: "In-game Options -> Display: set VSync explicitly to On or Off (never 'Auto'), and set an in-game Frame Rate Limit rather than leaving it unlimited."
+          verified: false
+          source: "protondb.com/app/230410 (retrieved 2026-07-15)"
+
+      - symptom: "Launcher window renders blank/garbled and won't show the Play button even with a recent Proton"
+        cause: "The 32-bit launcher's DXVK-rendered UI occasionally fails; falling back to OpenGL-based WineD3D for the launcher's D3D can make the UI render (may reduce launcher performance)."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_WINED3D=1 %command%"
+          verified: false
+          source: "github.com/ValveSoftware/Proton/wiki/Changelog (retrieved 2026-07-15)"
+
+  - name: "Subnautica"
+    steam_id: 264710
+    aliases: ["subnautica"]
+    issues:
+      - symptom: "Mouse cursor is extremely tiny on high-DPI displays (1440p/4K), making menus hard to use"
+        cause: "Subnautica's Unity cursor doesn't scale with the display; Proton's default wineprefix DPI is left at 96, so the cursor renders at native pixel size."
+        fix:
+          type: info
+          value: "Increase the wineprefix DPI. Run protontricks for Subnautica (264710), choose the default wineprefix, launch winecfg, open the Graphics tab, raise the 'Screen resolution' DPI value (e.g. to 150-200), click OK, and restart the game."
+          verified: false
+          source: "protondb.com/app/264710 (retrieved 2026-07-15)"
+
+      - symptom: "Game hangs indefinitely at 'Launching...' and never reaches the menu"
+        cause: "Game files installed on an NTFS partition (common when reusing a Windows Steam library). Proton cannot reliably run the prefix from NTFS."
+        fix:
+          type: info
+          value: "Uninstall Subnautica and reinstall it to a Steam library folder on a native Linux filesystem (ext4/btrfs). Do not run the game or its compatdata prefix from an NTFS-mounted drive."
+          verified: false
+          source: "protondb.com/app/264710 (retrieved 2026-07-15)"
+
+      - symptom: "Mouse loses focus / pointer sticks in the screen centre, or clicks don't register in menus"
+        cause: "Historic Proton mouse-grab/focus bug under some window managers; largely resolved on modern Proton but can recur on certain compositors."
+        fix:
+          type: info
+          value: "Update to a current Proton version (Proton 9+ or latest Experimental). If it persists, run the game in borderless/fullscreen from the in-game display settings rather than windowed mode."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/1337 (retrieved 2026-07-15)"
+
+  - name: "Dying Light"
+    steam_id: 239140
+    aliases: ["dying light"]
+    issues:
+      - symptom: "Native Linux build crashes, stutters, has weird mouse behavior, or crashes in co-op safe zones"
+        cause: "The native Linux port is old and unmaintained; it defaults to OpenGL 3.3, is less stable than the Windows build, and crashes on entering co-op safe zones. The Proton build is smoother and more stable."
+        fix:
+          type: info
+          value: "Prefer running via Proton instead of the native Linux build. In Steam: Properties -> Compatibility -> 'Force the use of a specific Steam Play compatibility tool' and select a recent Proton or GE-Proton. ProtonDB rates the game Platinum via Proton, versus recurring stability/graphics complaints on native."
+          verified: false
+          source: "protondb.com/app/239140 (retrieved 2026-07-15)"
+
+      - symptom: "Native Linux build fails to start / reports no video memory and crashes on launch"
+        cause: "The native game calls lspci to detect the GPU, but on most distros lspci lives in /usr/sbin (not /usr/bin), so the game finds no card, reports zero VRAM, and crashes."
+        fix:
+          type: info
+          value: "Ensure lspci is reachable on PATH, or just use Proton (recommended, avoids this entirely). Manual native workaround (needs root, touches a system path): run 'sudo ln -s /usr/sbin/lspci /usr/bin/lspci', then verify 'lspci' works as your user before launching."
+          verified: false
+          source: "gamingonlinux.com/forum/topic/2766 (retrieved 2026-07-15)"
+
+      - symptom: "Native Linux build shows shadow/graphical glitches from old OpenGL 3.3"
+        cause: "On Mesa drivers the native build defaults to OpenGL 3.3; forcing a newer GL version via Mesa overrides fixes most shadow/rendering glitches. Mesa-only (AMD/Intel); no effect on the NVIDIA proprietary driver."
+        when: { gpu: amd }
+        fix:
+          type: launch_option
+          value: "MESA_GL_VERSION_OVERRIDE=4.6 MESA_GLSL_VERSION_OVERRIDE=460 %command% -nologos"
+          verified: false
+          source: "steamcommunity.com/app/239140/discussions/0/1368380934244301142 (retrieved 2026-07-15)"
+
+      - symptom: "Native Linux build performs poorly on the NVIDIA proprietary driver"
+        cause: "The native OpenGL renderer benefits from NVIDIA's threaded optimizations, which are off by default for this app."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "__GL_THREADED_OPTIMIZATIONS=1 %command%"
+          verified: false
+          source: "steamcommunity.com/app/239140/discussions/0/592907032315594531 (retrieved 2026-07-15)"
+
+      - symptom: "Unsure whether online co-op works on Linux / worried about anti-cheat bans"
+        cause: "Dying Light uses Valve Anti-Cheat (VAC), which is fully supported under Proton, so co-op is playable. Reported join failures are networking/version-mismatch issues, not Linux being blocked."
+        fix:
+          type: info
+          value: "Co-op works on Linux via Proton. Keep VAC enabled (required for multiplayer) - VAC is Linux-supported and will not ban you for running Proton. If you cannot join a friend, match Proton versions (e.g. both on the same GE-Proton) and ensure the game is updated on both ends."
+          verified: false
+          source: "areweanticheatyet.com/game/dying-light (retrieved 2026-07-15)"
+
+  - name: "ARK: Survival Evolved"
+    steam_id: 346110
+    aliases: ["ark", "ark survival evolved"]
+    issues:
+      - symptom: "Multiplayer servers reject you / BattlEye won't start under Proton"
+        cause: "ARK uses BattlEye anti-cheat. BattlEye added Proton support in Sept 2021 and Wildcard enabled it; since the July 2022 switch to Proton-by-default it works on Linux out of the box."
+        fix:
+          type: info
+          value: "BattlEye is supported on Linux/Proton for ARK (status: Supported on areweanticheatyet). Let Steam install the BattlEye runtime on first launch and accept the BattlEye prompt; official/anti-cheat servers work. If a server still rejects you, verify game files (Properties -> Installed Files -> Verify) rather than adding launch flags."
+          verified: false
+          source: "areweanticheatyet.com/game/ark-survival-evolved (retrieved 2026-07-15)"
+
+      - symptom: "Poor CPU utilization / low FPS on this heavy UE4 world"
+        cause: "ARK does not use all CPU cores by default and renders unnecessary volumetric sky effects; both are expensive on Proton."
+        fix:
+          type: launch_option
+          value: "%command% -USEALLAVAILABLECORES -nomansky"
+          verified: false
+          source: "avg.com/en/signal/ark-survival-evolved-performance-guide (retrieved 2026-07-15)"
+
+      - symptom: "Still GPU-bound / low FPS on older or mid GPUs"
+        cause: "ARK defaults to Shader Model 5 (DX11); forcing the DX10 / Shader Model 4 path is much cheaper and gains ~15-20 FPS at the cost of visual fidelity (adds haze/fog)."
+        fix:
+          type: launch_option
+          value: "%command% -d3d10"
+          verified: false
+          source: "guided.news/en/guides/ark-survival-evolved-steam-launch-options-performance (retrieved 2026-07-15)"
+
+      - symptom: "'Out of video memory' crash or crash-on-load / RAM exhaustion"
+        cause: "ARK has severe memory leaks and over-allocates VRAM; on 8 GB VRAM / limited-RAM systems it OOMs. The low-memory mode caps ARK's allocation footprint."
+        fix:
+          type: launch_option
+          value: "%command% -lowmemory"
+          verified: false
+          source: "steamcommunity.com/app/346110/discussions/0/341537671987433206 (retrieved 2026-07-15)"
+
+      - symptom: "Native Linux build launches instead of Proton, or won't start at all"
+        cause: "The old native Linux client is abandoned/broken; Wildcard moved it behind a Steam beta and made Proton the default. Forcing Proton fixes most 'won't launch' reports."
+        fix:
+          type: info
+          value: "Use Proton, not the legacy native Linux build. Right-click ARK -> Properties -> Compatibility -> 'Force the use of a specific Steam Play compatibility tool' and pick Proton (Experimental or a recent stable). Make sure you are NOT opted into any 'native/legacy Linux' beta under the Betas tab."
+          verified: false
+          source: "gamingonlinux.com/2022/07/ark-survival-evolved-switches-away-from-linux-native-to-use-proton (retrieved 2026-07-15)"
+
+  - name: "Hunt: Showdown 1896"
+    steam_id: 594650
+    aliases: ["hunt", "hunt showdown", "hunt showdown 1896"]
+    issues:
+      - symptom: "Game won't connect to servers / EAC error on launch; multiplayer inaccessible on Linux"
+        cause: "Hunt uses Easy Anti-Cheat. Crytek ships the EAC Linux/Proton runtime, but updates have repeatedly shipped with it disabled/broken (Nov 2023, Aug 2024, Aug 2025). It works when the Proton EAC Runtime is installed and a current Proton is used."
+        fix:
+          type: info
+          value: "In Steam, install 'Proton EAC Runtime' (Library -> Tools). Set the game to Proton Experimental (Properties -> Compatibility). After a game update breaks EAC, switch Proton Experimental's beta to 'bleeding-edge' (Properties -> Betas) until the fix reaches stable. Competitive multiplayer only works when EAC connects."
+          verified: false
+          source: "areweanticheatyet.com/game/hunt-showdown (retrieved 2026-07-15)"
+
+      - symptom: "Black screen (or black window with cursor) on launch under Proton"
+        cause: "The CryEngine 1896 upgrade introduced a DXVK/vkd3d issue causing a black screen at startup; the fix landed first in Proton Experimental bleeding-edge, then merged to stable."
+        fix:
+          type: info
+          value: "Set the game to Proton Experimental (Properties -> Compatibility). If the black screen persists, set Proton Experimental's beta channel to 'bleeding-edge' (Properties -> Betas), then relaunch."
+          verified: false
+          source: "steamcommunity.com/app/594650/discussions/8/6462188749580972442 (retrieved 2026-07-15)"
+
+      - symptom: "Low FPS / heavy stutter, especially on older GPUs"
+        cause: "The game defaults to the DX12 renderer under vkd3d-proton; forcing DX11 (translated by DXVK) is frequently faster and smoother on Proton. Note: DX11 disables FSR/DLSS upscaling."
+        fix:
+          type: launch_option
+          value: "%command% -dx11"
+          verified: false
+          source: "steamcommunity.com/app/594650/discussions/8/6462188749582790146 (retrieved 2026-07-15)"
+
+      - symptom: "Progressive shader-compilation stutter that worsens over a session"
+        cause: "A stale or corrupt in-game shader cache causes recurring hitching; clearing it forces a clean rebuild."
+        fix:
+          type: info
+          value: "Close the game, then delete the 'Shader' cache folder inside Hunt's user data directory (under the game's user/profile folder in the Proton prefix / compatdata). It is rebuilt on next launch; the first match after clearing may stutter briefly while recompiling."
+          verified: false
+          source: "steamcommunity.com/app/594650/discussions/8/6462188749585328794 (retrieved 2026-07-15)"
+
+  - name: "Borderlands 2"
+    steam_id: 49520
+    aliases: ["borderlands 2", "bl2"]
+    issues:
+      - symptom: "Multiplayer/crossplay with Windows players fails, missing final DLC and the UHD texture pack, poor performance"
+        cause: "The old native Linux (Aspyr) build was abandoned: no final DLC, no UHD patch, and version-locked out of sync with the current Windows build, so it cannot join Windows/console lobbies. Proton restores parity."
+        fix:
+          type: info
+          value: "Do NOT use the native Linux build. Right-click Borderlands 2 -> Properties -> Compatibility -> 'Force the use of a specific Steam Play compatibility tool' and select Proton Experimental (or Proton 9.0+). Set this BEFORE installing so Steam downloads the Windows depot. Proton gives you all DLC, the UHD pack, current patches, better performance, and crossplay with Windows players."
+          verified: false
+          source: "steamcommunity.com/app/49520/discussions/0/679608903389969713 (retrieved 2026-07-15)"
+
+      - symptom: "Long unskippable 2K / Gearbox / PhysX logo videos every launch"
+        cause: "Unreal Engine 3 plays bink startup movies on boot; a documented UE3 launch flag skips them."
+        fix:
+          type: launch_option
+          value: "%command% -nostartupmovies"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=122676733 (retrieved 2026-07-15)"
+
+      - symptom: "Game crashes to desktop or hard-locks, often when PhysX effects appear in combat"
+        cause: "GPU/hardware PhysX is unstable and crashes even on Windows; under Proton it is a frequent crash source. It is a GPU-accelerated NVIDIA feature."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "In-game Options -> Video, set 'PhysX' to Low or Off (Off is safest). Only raise it if you specifically want the extra particle effects. Leaving it High is the most common cause of mid-fight crashes."
+          verified: false
+          source: "steamcommunity.com/app/49520/discussions/0/684117900292789119 (retrieved 2026-07-15)"
+
+      - symptom: "Game refuses to launch on the first try / black screen at startup under Proton"
+        cause: "A DXVK/D3D9 init issue on some setups; forcing WineD3D gets it past first launch. WARNING: this tanks GPU performance and breaks controller detection, so use only as a diagnostic, then remove it."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_WINED3D=1 %command%"
+          verified: false
+          source: "steamcommunity.com/app/49520/discussions/0/684117900292789119 (retrieved 2026-07-15)"
+
+      - symptom: "Startup crash tied to a stale shader cache after a Proton/driver change"
+        cause: "A corrupt or mismatched DXVK shader cache for appid 49520 can block launch."
+        fix:
+          type: info
+          value: "Delete the folder ~/.steam/steam/steamapps/shadercache/49520 (may also be under ~/.local/share/Steam/...), then relaunch. Pinning Proton 9.0-4 was also reported to stabilize launch."
+          verified: false
+          source: "steamcommunity.com/app/49520/discussions/0/684117900292789119 (retrieved 2026-07-15)"
+
+  - name: "PAYDAY 2"
+    steam_id: 218620
+    aliases: ["payday 2", "pd2"]
+    issues:
+      - symptom: "Can't matchmake or co-op with Windows/Epic friends; missing recent content; outdated build"
+        cause: "Overkill dropped the native Linux port in 2023; it is frozen on an old engine version and Steam only matches players on the same version. Proton runs the current Windows build."
+        fix:
+          type: info
+          value: "Force Proton instead of the native Linux build. Steam -> PAYDAY 2 -> Properties -> Compatibility, tick 'Force the use of a specific Steam Play compatibility tool' and pick Proton Experimental (or latest stable). The native build is stuck on the 2023 version, cannot join current-version (Windows/Epic) lobbies, and gets no fixes. Rated Platinum on ProtonDB against the Windows build."
+          verified: false
+          source: "gamingonlinux.com/2023/06/overkill-drops-linux-support-for-payday-2 (retrieved 2026-07-15)"
+
+      - symptom: "Game crashes or hangs on an infinite loading screen at startup under Proton"
+        cause: "Launching via the Steam 'Play PAYDAY 2 with Modern CPU Support (2021+)' entry is broken under Proton and causes crashes / infinite loads."
+        fix:
+          type: info
+          value: "When Steam prompts which version to launch, choose the normal 'Play PAYDAY 2' entry, NOT 'Play PAYDAY 2 with Modern CPU Support (2021+)'. If it still won't start, close Steam and delete the prefix folder ~/.local/share/Steam/steamapps/compatdata/218620 so Proton regenerates it on next launch."
+          verified: false
+          source: "protondb.com/app/218620 (retrieved 2026-07-15)"
+
+      - symptom: "SuperBLT mods (mod loader) do not load under Proton"
+        cause: "Proton does not load the wsock32 hook that SuperBLT injects unless the DLL override is set."
+        fix:
+          type: launch_option
+          value: "WINEDLLOVERRIDES=\"wsock32=n,b\" %command%"
+          verified: false
+          source: "superblt.znix.xyz (retrieved 2026-07-15)"
+
+      - symptom: "Wrong resolution / black or letterboxed screen after first launch under Proton"
+        cause: "PAYDAY 2 sometimes writes a bad resolution to its config on first Proton launch; fullscreen also caps resolution at 1080p for some setups."
+        fix:
+          type: info
+          value: "Set the video mode to Windowed (Borderless) in-game (avoids the 1080p fullscreen cap), or edit renderer_settings.xml under the Proton prefix (compatdata/218620/pfx/drive_c/users/steamuser/AppData/Local/PAYDAY 2/) to match your monitor's native resolution, refresh rate and aspect ratio."
+          verified: false
+          source: "steamcommunity.com/app/218620/discussions/22/364039785167804415 (retrieved 2026-07-15)"
+
+      - symptom: "SuperBLT still won't inject, or mods needing the VC++ runtime fail under Proton"
+        cause: "Some native SuperBLT builds/mods depend on the Microsoft Visual C++ 2017 redistributable inside the Proton prefix."
+        fix:
+          type: info
+          value: "Use the Windows SuperBLT install (drop IPHLPAPI.dll + the mod_overrides/mods folders into the PAYDAY 2 install dir) together with the WINEDLLOVERRIDES=\"wsock32=n,b\" %command% launch option. If mods still fail, install the Microsoft Visual C++ 2017 Redistributable into the game's Proton prefix (e.g. via protontricks 218620 vcrun2017)."
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2649986928 (retrieved 2026-07-15)"
 
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
