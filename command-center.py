@@ -857,7 +857,7 @@ class CommandCenter(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_title("Gaming Command Center")
-        self.set_default_size(1180, 760)
+        self.set_default_size(1180, 820)
         self.topo = CPUTopology()
         self.gpu = GPUInfo()
         self.benching = False
@@ -1638,14 +1638,16 @@ class CommandCenter(Adw.ApplicationWindow):
             tiles.append(self._v2_tile(key, label, unit, color))
         outer.append(tiles)
 
-        # --- Two-column: CCD topology | GPU + actions ---
+        # --- Two-column: [CCD topology + overview] | GPU ---
         cols = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         cols.set_vexpand(True)
 
-        # Left: CPU / CCD topology card
+        # Left column: CCD topology card, then the overview card below it
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        left.set_hexpand(True)
+
         topo_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         topo_card.add_css_class("v2-card")
-        topo_card.set_hexpand(True)
         thead = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         tl = Gtk.Label(label="CPU · CCD TOPOLOGY"); tl.add_css_class("card-title"); tl.set_xalign(0)
         thead.append(tl)
@@ -1658,13 +1660,14 @@ class CommandCenter(Adw.ApplicationWindow):
         topo_card.append(self.ccd_box)
         self.ccd_cards = {}
         self.rebuild_ccd_cards()
-        cols.append(topo_card)
+        left.append(topo_card)
+        left.append(self._build_overview_card())
+        cols.append(left)
 
-        # Right: GPU panel + overview
+        # Right column: GPU panel + overclocking
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-        right.set_size_request(340, -1)
+        right.set_size_request(360, -1)
         right.append(self._build_gpu_panel())
-        right.append(self._build_overview_card())
         cols.append(right)
 
         outer.append(cols)
@@ -2192,9 +2195,9 @@ class CommandCenter(Adw.ApplicationWindow):
         grid.set_column_homogeneous(True)
         cells = {}
         for i, cpu in enumerate(sorted(cpus)):
-            cell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            cell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             cell.add_css_class("thread-cell")
-            cell.set_size_request(-1, 38)
+            cell.set_size_request(-1, 48)
             tid = Gtk.Label(label=f"T{i}"); tid.add_css_class("thread-id")
             cell.append(tid)
             freq = Gtk.Label(label="—"); freq.add_css_class("thread-freq")
