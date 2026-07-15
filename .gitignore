@@ -12,3 +12,7 @@ venv/
 
 # Claude Code local state
 .claude/
+
+# AppImage build artifacts
+/build/
+*.AppImage
