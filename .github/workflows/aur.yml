@@ -97,6 +97,12 @@ jobs:
 
       - name: Push to the AUR
         run: |
+          # ssh runs as root here and does NOT reliably expand ~ in ~/.ssh/config
+          # to $HOME (/github/home), so it never reads the populated known_hosts →
+          # "Host key verification failed". Bypass the config file entirely: pass
+          # the key and known_hosts as ABSOLUTE paths ($HOME is expanded by the
+          # shell, which is reliable) straight to git via GIT_SSH_COMMAND.
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=accept-new"
           git config --global user.name "GCC Release Bot"
           git config --global user.email "thomas.sigmund1989@gmail.com"
           git clone ssh://aur@aur.archlinux.org/gaming-command-center.git aur-repo
