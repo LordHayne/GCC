@@ -704,25 +704,50 @@ class GamesPage(Gtk.Box):
         lbl.set_margin_top(20)
         self.list_box.append(lbl)
 
-    def _build_game_card(self, appid, name, issues, in_db):
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        card.add_css_class("game-card")
+    TILE_PALETTE = [
+        ("#e0af68", "rgba(224,175,104,0.12)"), ("#7aa2f7", "rgba(122,162,247,0.12)"),
+        ("#9ece6a", "rgba(158,206,106,0.12)"), ("#bb9af7", "rgba(187,154,247,0.12)"),
+        ("#7dcfff", "rgba(125,207,255,0.12)"),
+    ]
 
-        # Title row: name + ProtonDB tier (lazy) + issue count
-        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        title = Gtk.Label(label=name)
-        title.add_css_class("game-title")
-        title.set_xalign(0)
-        title_row.append(title)
-        tier_lbl = Gtk.Label(label="")
-        tier_lbl.add_css_class("game-tier")
-        title_row.append(tier_lbl)
+    @staticmethod
+    def _initials(name):
+        words = [w for w in name.split() if w]
+        if len(words) >= 2:
+            return (words[0][0] + words[1][0]).upper()
+        return name[:2].upper()
+
+    def _build_game_card(self, appid, name, issues, in_db):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("v2-card")
+
+        # Title row: icon tile + name/meta + tier badge
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        fg, bg = self.TILE_PALETTE[appid % len(self.TILE_PALETTE)]
+        tile = Gtk.Label(label=self._initials(name))
+        tile.add_css_class("game-tile")
+        tile.set_size_request(44, 44)
+        css = Gtk.CssProvider()
+        css.load_from_string(f".gt-{appid} {{ background: {bg}; color: {fg}; }}")
+        tile.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        tile.add_css_class(f"gt-{appid}")
+        title_row.append(tile)
+
+        namecol = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        namecol.set_valign(Gtk.Align.CENTER)
+        nm = Gtk.Label(label=name); nm.add_css_class("game-title"); nm.set_xalign(0)
+        namecol.append(nm)
+        meta = Gtk.Label(label=(f"appid {appid}  ·  "
+                                f"{len(issues)} fix{'es' if len(issues) != 1 else ''} available"
+                                if issues else f"appid {appid}  ·  no known issues"))
+        meta.add_css_class("game-meta"); meta.set_xalign(0)
+        namecol.append(meta)
+        title_row.append(namecol)
+
         spacer = Gtk.Box(); spacer.set_hexpand(True); title_row.append(spacer)
-        summary = Gtk.Label(label=(
-            f"{len(issues)} known issue{'s' if len(issues) != 1 else ''}"
-            if issues else "no known issues for your setup"))
-        summary.add_css_class("stat-label")
-        title_row.append(summary)
+        tier_lbl = Gtk.Label(label=""); tier_lbl.add_css_class("game-tier")
+        tier_lbl.set_valign(Gtk.Align.CENTER)
+        title_row.append(tier_lbl)
         card.append(title_row)
 
         for issue in issues:
@@ -732,72 +757,58 @@ class GamesPage(Gtk.Box):
         return card
 
     def _build_issue_row(self, appid, issue):
-        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        """v2 issue: text column (symptom + badge, cause, fix) left, action right."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         row.add_css_class("issue-row")
 
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        col.set_hexpand(True)
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        sym = Gtk.Label(label=issue.symptom)
-        sym.add_css_class("issue-symptom")
-        sym.set_xalign(0)
-        sym.set_wrap(True)
-        sym.set_hexpand(True)
+        sym = Gtk.Label(label=issue.symptom); sym.add_css_class("issue-symptom")
+        sym.set_xalign(0); sym.set_wrap(True)
         top.append(sym)
-        # Trust badge: a green check for tested fixes, an amber flag otherwise.
         badge = Gtk.Label()
         if issue.fix.verified:
-            badge.set_label("✓ Verified")
-            badge.add_css_class("badge-verified")
+            badge.set_label("✓ VERIFIED"); badge.add_css_class("badge-verified")
         else:
-            badge.set_label("untested")
-            badge.add_css_class("badge-untested")
-        badge.set_valign(Gtk.Align.START)
+            badge.set_label("UNTESTED"); badge.add_css_class("badge-untested")
+        badge.set_valign(Gtk.Align.CENTER)
         top.append(badge)
-        row.append(top)
+        col.append(top)
 
         if issue.cause:
-            cause = Gtk.Label(label=issue.cause)
-            cause.add_css_class("issue-cause")
-            cause.set_xalign(0)
-            cause.set_wrap(True)
-            row.append(cause)
+            cause = Gtk.Label(label=issue.cause); cause.add_css_class("issue-cause")
+            cause.set_xalign(0); cause.set_wrap(True)
+            col.append(cause)
 
         fix = issue.fix
-        if fix.type == "info":
-            info = Gtk.Label(label=fix.value)
-            info.add_css_class("issue-info")
-            info.set_xalign(0)
-            info.set_wrap(True)
-            info.set_selectable(True)  # so the user can copy a command
-            row.append(info)
+        if fix.type == "launch_option":
+            detail = Gtk.Label(label=f"launch option: {fix.value}")
+        elif fix.type == "file":
+            detail = Gtk.Label(label=f"writes {fix.path}")
+        elif fix.type == "tool_action":
+            detail = Gtk.Label(label=f"action: {fix.action}")
         else:
-            action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            btn = Gtk.Button()
-            btn.add_css_class("btn-apply")
-            if fix.type == "launch_option":
-                btn.set_label("Apply launch option")
-            elif fix.type == "file":
-                btn.set_label("Create config file")
-            elif fix.type == "tool_action":
-                btn.set_label("Apply fix")
-            btn.connect("clicked", self.on_apply_fix, appid, issue)
-            action_row.append(btn)
-            result = Gtk.Label(label="")
-            result.add_css_class("issue-result")
-            result.set_xalign(0)
-            result.set_wrap(True)
-            action_row.append(result)
-            btn._result = result
-            row.append(action_row)
+            detail = Gtk.Label(label=fix.value)
+        detail.add_css_class("issue-info"); detail.set_xalign(0); detail.set_wrap(True)
+        detail.set_selectable(True)
+        col.append(detail)
+        row.append(col)
 
-            if fix.type == "launch_option":
-                # The exact string, always visible and selectable — the manual
-                # fallback if Steam is open.
-                lo = Gtk.Label(label=fix.value)
-                lo.add_css_class("issue-info")
-                lo.set_xalign(0)
-                lo.set_wrap(True)
-                lo.set_selectable(True)
-                row.append(lo)
+        # Action column
+        if fix.is_applicable:
+            act = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            act.set_valign(Gtk.Align.CENTER)
+            btn = Gtk.Button(); btn.add_css_class("btn-apply-sm")
+            btn.set_label({"launch_option": "APPLY FIX", "file": "CREATE FILE",
+                           "tool_action": "APPLY FIX"}.get(fix.type, "APPLY"))
+            btn.connect("clicked", self.on_apply_fix, appid, issue)
+            act.append(btn)
+            result = Gtk.Label(label=""); result.add_css_class("issue-result")
+            result.set_xalign(1); result.set_wrap(True)
+            act.append(result)
+            btn._result = result
+            row.append(act)
 
         return row
 
@@ -862,13 +873,24 @@ class GamesPage(Gtk.Box):
             tier, total = steam_scanner.protondb_tier(appid)
             if not tier:
                 return
-            colors = {"platinum": "#c0caf5", "gold": "#e0af68",
-                      "silver": "#9aa5ce", "bronze": "#cd7f32",
-                      "borked": "#f7768e", "pending": "#565f89"}
-            c = colors.get(tier, "#565f89")
-            GLib.idle_add(lambda: label.set_markup(
-                f"<span color='{c}'>ProtonDB: {tier.capitalize()} "
-                f"({total} reports)</span>") or False)
+            colors = {"platinum": ("#c0caf5", "rgba(192,202,245,0.14)"),
+                      "gold": ("#e0af68", "rgba(224,175,104,0.14)"),
+                      "silver": ("#9aa5ce", "rgba(154,165,206,0.14)"),
+                      "bronze": ("#cd7f32", "rgba(205,127,50,0.14)"),
+                      "borked": ("#f7768e", "rgba(247,118,142,0.14)"),
+                      "pending": ("#565f89", "rgba(86,95,137,0.14)")}
+            fg, bg = colors.get(tier, ("#565f89", "rgba(86,95,137,0.14)"))
+
+            def apply():
+                label.set_label(tier.upper())
+                label.set_tooltip_text(f"ProtonDB: {tier.capitalize()} · {total} reports")
+                css = Gtk.CssProvider()
+                css.load_from_string(f".tier-{appid} {{ background: {bg}; color: {fg}; }}")
+                label.get_style_context().add_provider(
+                    css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                label.add_css_class(f"tier-{appid}")
+                return False
+            GLib.idle_add(apply)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1089,14 +1111,24 @@ class CommandCenter(Adw.ApplicationWindow):
             background: #1e1f2e; border-radius: 12px; padding: 14px 16px;
             border: 1px solid rgba(255,255,255,0.05);
         }
-        .game-title { color: #c0caf5; font-weight: bold; font-size: 16px; }
-        .game-tier { font-size: 11px; }
-        .issue-row {
-            background: #14151f; border-radius: 8px; padding: 8px 10px;
-            margin-top: 6px;
+        .game-title { color: #c0caf5; font-weight: 700; font-size: 15px; }
+        .game-meta { color: #565f89; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+        .game-tile {
+            border-radius: 10px; font-weight: 700; font-size: 17px; letter-spacing: 1px;
         }
-        .issue-symptom { color: #e0af68; font-weight: bold; }
-        .issue-cause { color: #565f89; font-size: 12px; }
+        .game-tier { font-size: 9px; font-weight: 700; letter-spacing: 1px;
+            padding: 3px 9px; border-radius: 5px; }
+        .issue-row {
+            background: #12131b; border-radius: 10px; padding: 11px 14px;
+            margin-top: 2px; border: 1px solid rgba(255,255,255,0.04);
+        }
+        .issue-symptom { color: #e0af68; font-weight: 700; font-size: 12px; }
+        .issue-cause { color: #565f89; font-size: 11px; }
+        .btn-apply-sm {
+            background: rgba(122,162,247,0.1); border: 1px solid rgba(122,162,247,0.2);
+            color: #7aa2f7; font-weight: 700; font-size: 10px; border-radius: 8px; padding: 7px 14px;
+        }
+        .btn-apply-sm:hover { background: rgba(122,162,247,0.18); }
         .badge-verified {
             background: rgba(158,206,106,0.15); color: #9ece6a;
             border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: bold;
@@ -1635,7 +1667,7 @@ class CommandCenter(Adw.ApplicationWindow):
         thead.append(self.topo_meta)
         topo_card.append(thead)
         self.ccd_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.ccd_box.set_vexpand(True)
+        self.ccd_box.set_valign(Gtk.Align.START)  # keep CCD cards their natural height
         topo_card.append(self.ccd_box)
         self.ccd_cards = {}
         self.rebuild_ccd_cards()
