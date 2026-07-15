@@ -31,6 +31,9 @@ XORG_DIR=/etc/X11/xorg.conf.d
 XORG_CONF=$XORG_DIR/10-nvidia.conf
 SYSCTL_CONF=/etc/sysctl.d/99-gaming-cc.conf
 MAX_MAP_COUNT=2147483642
+AUDIO_CONF=/etc/modprobe.d/gaming-cc-audio.conf
+SATA_RULE=/etc/udev/rules.d/99-gaming-cc-sata.rules
+GOVERNOR_UNIT=/etc/systemd/system/gaming-cc-governor.service
 
 die() { echo "ERR: $1" >&2; exit 1; }
 
@@ -148,8 +151,61 @@ EOF
         echo "DONE_MAXMAPCOUNT"
         ;;
 
+    audiopersist)
+        # Persist snd_hda_intel power_save across reboots via modprobe.d, and
+        # apply it to the already-loaded module now (no reboot needed). Our own
+        # file, so a plain rewrite is safe.
+        mkdir -p "$(dirname "$AUDIO_CONF")" || die "could not create /etc/modprobe.d"
+        printf '# Written by Gaming Command Center\noptions snd_hda_intel power_save=1\n' \
+            > "$AUDIO_CONF" || die "could not write $AUDIO_CONF"
+        echo 1 > /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null \
+            || echo "NOTE: written to $AUDIO_CONF, takes effect on next boot"
+        echo "DONE_AUDIO"
+        ;;
+
+    satapersist)
+        # SATA link power isn't a module param and sysfs isn't kept by sysctl,
+        # so persist it with a udev rule that re-applies on every boot/hotplug,
+        # and set it on the current hosts now.
+        mkdir -p "$(dirname "$SATA_RULE")" || die "could not create /etc/udev/rules.d"
+        printf '# Written by Gaming Command Center\nACTION=="add", SUBSYSTEM=="scsi_host", KERNEL=="host*", ATTR{link_power_management_policy}="med_power_with_dipm"\n' \
+            > "$SATA_RULE" || die "could not write $SATA_RULE"
+        for dev in /sys/class/scsi_host/host*/link_power_management_policy; do
+            [ -w "$dev" ] && echo med_power_with_dipm > "$dev" 2>/dev/null || true
+        done
+        echo "DONE_SATA"
+        ;;
+
+    governorpersist)
+        # Persist a resting CPU governor via a tiny systemd oneshot that sets it
+        # on every boot; Game Mode and the benchmark still change it at runtime.
+        # Applied now too. Defaults to powersave (what System Doctor recommends).
+        GOV="${2:-powersave}"
+        avail=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null)
+        case " $avail " in
+            *" $GOV "*) : ;;
+            *) die "governor '$GOV' not available (have:$avail)" ;;
+        esac
+        cat > "$GOVERNOR_UNIT" <<UNITEOF || die "could not write $GOVERNOR_UNIT"
+[Unit]
+Description=Gaming Command Center — default CPU governor ($GOV)
+After=multi-user.target
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo $GOV > "\$g" 2>/dev/null || true; done'
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl enable gaming-cc-governor.service >/dev/null 2>&1 || true
+        for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+            echo "$GOV" > "$g" 2>/dev/null || true
+        done
+        echo "DONE_GOVERNOR"
+        ;;
+
     *)
-        echo "Usage: gaming-cc-etc-helper modprobe | coolbits | maxmapcount"
+        echo "Usage: gaming-cc-etc-helper modprobe | coolbits | maxmapcount | audiopersist | satapersist | governorpersist"
         exit 1
         ;;
 esac

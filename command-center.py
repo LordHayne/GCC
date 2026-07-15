@@ -588,15 +588,20 @@ class GameDoctorPage(Gtk.Box):
     # --- individual fixes: each returns (ok, message) and never lies ---
 
     def _fix_governor(self):
-        return CCDController.helper("governor", "DONE_GOVERNOR",
-                                    "CPU governor set to powersave")
+        # Persistent (systemd oneshot at boot): powersave is the resting default;
+        # Game Mode still flips to performance at runtime. Applied now too.
+        return CCDController.etc_helper("governorpersist", "DONE_GOVERNOR",
+                                        "CPU governor set to powersave (persists across reboots)")
 
     def _fix_audio(self):
-        return CCDController.helper("audio", "DONE_AUDIO", "Audio power save enabled")
+        # Persistent (modprobe.d): survives reboots, applied now. One-time auth.
+        return CCDController.etc_helper("audiopersist", "DONE_AUDIO",
+                                        "Audio power save enabled (persists across reboots)")
 
     def _fix_sata(self):
-        return CCDController.helper("sata", "DONE_SATA",
-                                    "SATA link power set to med_power_with_dipm")
+        # Persistent (udev rule): re-applied every boot, set on current hosts now.
+        return CCDController.etc_helper("satapersist", "DONE_SATA",
+                                        "SATA link power set (persists across reboots)")
 
     def _fix_modprobe(self):
         return CCDController.etc_helper("modprobe", "DONE_MODPROBE",
