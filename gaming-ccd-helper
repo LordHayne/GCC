@@ -133,7 +133,15 @@ case "${1:-}" in
         ;;
 
     audio)
+        # Codec sleeps when idle — saves power (Power Saving toggle).
         echo 1 > /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null \
+            || die "audio power_save not available"
+        echo "DONE_AUDIO"
+        ;;
+
+    audio-off)
+        # Codec never sleeps — no wake-up pops mid-game (the gaming default).
+        echo 0 > /sys/module/snd_hda_intel/parameters/power_save 2>/dev/null \
             || die "audio power_save not available"
         echo "DONE_AUDIO"
         ;;

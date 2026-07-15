@@ -357,10 +357,8 @@ class GameDoctorPage(Gtk.Box):
         # Single source of truth for which checks have a one-click fix. Used both
         # to decide whether a row shows a FIX button and to run it.
         self._fixes = {
-            "CPU Governor":      self._fix_governor,
             "CCD / Game Mode":   self._fix_game_mode,
             "Audio Power Save":  self._fix_audio,
-            "SATA Link Power":   self._fix_sata,
             "GameMode Config":   self._fix_gamemode_ini,
             "NVIDIA Modprobe":   self._fix_modprobe,
             "Coolbits / GPU-OC": self._fix_coolbits,
@@ -587,21 +585,12 @@ class GameDoctorPage(Gtk.Box):
 
     # --- individual fixes: each returns (ok, message) and never lies ---
 
-    def _fix_governor(self):
-        # Persistent (systemd oneshot at boot): powersave is the resting default;
-        # Game Mode still flips to performance at runtime. Applied now too.
-        return CCDController.etc_helper("governorpersist", "DONE_GOVERNOR",
-                                        "CPU governor set to powersave (persists across reboots)")
-
     def _fix_audio(self):
-        # Persistent (modprobe.d): survives reboots, applied now. One-time auth.
-        return CCDController.etc_helper("audiopersist", "DONE_AUDIO",
-                                        "Audio power save enabled (persists across reboots)")
-
-    def _fix_sata(self):
-        # Persistent (udev rule): re-applied every boot, set on current hosts now.
-        return CCDController.etc_helper("satapersist", "DONE_SATA",
-                                        "SATA link power set (persists across reboots)")
+        # Gaming: turn the codec power-save OFF so it never sleeps and pops
+        # mid-game. (The power-saving direction lives under the Power Saving
+        # toggle, not here.)
+        return CCDController.helper("audio-off", "DONE_AUDIO",
+                                    "Audio codec power-save turned off (no wake-up pops)")
 
     def _fix_modprobe(self):
         return CCDController.etc_helper("modprobe", "DONE_MODPROBE",

@@ -154,21 +154,11 @@ def scan_system():
 
     # === CPU ===
 
-    # 4. CPU Governor
-    def check_governor():
-        try:
-            with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") as f:
-                gov = f.read().strip()
-            if gov == "powersave":
-                return "ok", "CPU Governor: powersave ✅ (optimal for idle)", ""
-            elif gov == "performance":
-                return "warning", "CPU Governor: performance (should be powersave)", "Set to powersave — GameMode will switch to performance when gaming"
-            return "info", f"CPU Governor: {gov}", ""
-        except:
-            return "info", "Could not read governor", ""
-    checks.append(SystemCheck("CPU Governor", check_governor))
+    # The idle CPU governor is a power-efficiency setting, not a gaming one, and
+    # on EPP drivers the desktop's power-profiles-daemon owns it — so it lives
+    # under the separate Power Saving toggle, not here as a gaming warning.
 
-    # 4b. CPU Boost / Turbo — vendor-neutral. AMD (acpi-cpufreq / amd-pstate)
+    # CPU Boost / Turbo — vendor-neutral. AMD (acpi-cpufreq / amd-pstate)
     #     exposes cpufreq/boost; intel_pstate uses no_turbo (inverted). Turbo off
     #     costs a big chunk of single-core clock, which is what games care about.
     def check_cpu_boost():
@@ -342,38 +332,21 @@ def scan_system():
         return "warning", "gamemode.ini missing", "Create with park_cores + pin_cores for automatic CCD parking when gaming"
     checks.append(SystemCheck("GameMode Config", check_gamemode_ini))
 
-    # 13. SATA Link Power
-    def check_sata():
-        # Check EVERY host, not just the first — a machine can have one host on a
-        # sane policy and others still on max_performance (wastes power).
-        try:
-            hosts = []
-            for name in sorted(os.listdir("/sys/class/scsi_host")):
-                pol = _read1(f"/sys/class/scsi_host/{name}/link_power_management_policy")
-                if pol is not None:
-                    hosts.append((name, pol))
-        except OSError:
-            return "info", "Could not check SATA", ""
-        if not hosts:
-            return "info", "No SATA controllers found", ""
-        bad = [n for n, pol in hosts if pol == "max_performance"]
-        if bad:
-            return ("warning",
-                    f"{len(bad)}/{len(hosts)} host(s) on max_performance (wastes power)",
-                    "Set to med_power_with_dipm")
-        return "ok", f"SATA Link Power optimised on all {len(hosts)} host(s) ✅", ""
-    checks.append(SystemCheck("SATA Link Power", check_sata))
+    # SATA link power is a power-efficiency setting, not a gaming one — it lives
+    # under the Power Saving toggle, not here.
 
-    # 14. Audio Power Save
+    # Audio codec power-save — gaming-relevant, but INVERTED: power_save=1 lets
+    # the HDA codec sleep when idle and wake with an audible pop/crackle at the
+    # start of a game sound. For a gaming desktop the right value is OFF (0);
+    # saving that bit of power belongs to the Power Saving toggle.
     def check_audio():
-        path = "/sys/module/snd_hda_intel/parameters/power_save"
-        if os.path.exists(path):
-            with open(path) as f:
-                val = f.read().strip()
-            if val == "1":
-                return "ok", "Audio Power Save enabled ✅", ""
-            return "warning", f"Audio Power Save: {val} (should be 1)", "echo 1 > /sys/module/snd_hda_intel/parameters/power_save"
-        return "info", "Audio Power Save not available", ""
+        val = _read1("/sys/module/snd_hda_intel/parameters/power_save")
+        if val is None:
+            return "info", "Audio codec power-save not exposed by this driver", ""
+        if val == "0":
+            return "ok", "Audio codec power-save off ✅ (no wake-up pops in games)", ""
+        return ("warning", f"Audio codec power-save on ({val}) — can cause pops/crackle in games",
+                "Turn it off so the codec never sleeps mid-game")
     checks.append(SystemCheck("Audio Power Save", check_audio))
 
     # 15. Monitor refresh rate
