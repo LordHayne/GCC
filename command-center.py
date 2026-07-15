@@ -546,9 +546,10 @@ class GamesPage(Gtk.Box):
         header.set_margin_top(16)
         header.set_margin_bottom(8)
         self.subtitle = Gtk.Label(label="")
-        self.subtitle.add_css_class("page-subtitle")
+        self.subtitle.add_css_class("game-meta")
         self.subtitle.set_halign(Gtk.Align.START)
-        self.subtitle.set_wrap(True)
+        self.subtitle.set_wrap(False)
+        self.subtitle.set_ellipsize(3)  # PANGO_ELLIPSIZE_END if too narrow
         header.append(self.subtitle)
         spacer = Gtk.Box(); spacer.set_hexpand(True); header.append(spacer)
         self.rescan_btn = Gtk.Button(label="Rescan")
