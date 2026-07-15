@@ -2146,7 +2146,6 @@ class CommandCenter(Adw.ApplicationWindow):
         cpus = self.topo.get_ccd_cpus(ccd_id)
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card.add_css_class("ccd-card")
-        card.set_vexpand(True)
 
         # Title row: name + badge + spec + avg
         title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -2163,16 +2162,15 @@ class CommandCenter(Adw.ApplicationWindow):
         title_row.append(avg)
         card.append(title_row)
 
-        # Thread grid — 6 columns
+        # Thread grid — 6 columns, compact fixed-height cells
         grid = Gtk.Grid()
         grid.set_row_spacing(6); grid.set_column_spacing(6)
         grid.set_column_homogeneous(True)
-        grid.set_vexpand(True)
         cells = {}
         for i, cpu in enumerate(sorted(cpus)):
             cell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
             cell.add_css_class("thread-cell")
-            cell.set_vexpand(True)
+            cell.set_size_request(-1, 38)
             tid = Gtk.Label(label=f"T{i}"); tid.add_css_class("thread-id")
             cell.append(tid)
             freq = Gtk.Label(label="—"); freq.add_css_class("thread-freq")
