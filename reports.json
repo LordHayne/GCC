@@ -1,0 +1,14 @@
+{
+  "fixes": {
+    "2357570|launch option: VKD3D_CONFIG=no_upload_hvv %command%": {
+      "failed": 0,
+      "gpu": {
+        "nvidia": [
+          1,
+          0
+        ]
+      },
+      "worked": 1
+    }
+  }
+}
