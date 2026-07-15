@@ -1294,6 +1294,348 @@ games:
           verified: false
           source: "steamcommunity.com/app/218620/discussions/22/364039785167804415 (retrieved 2026-07-15)"
 
+  - name: "War Thunder"
+    steam_id: 236390
+    aliases: ["war thunder", "wt"]
+    issues:
+      - symptom: "Game won't start, or you get kicked/anti-cheat errors when launched through a Proton/Steam Play compatibility tool"
+        cause: "War Thunder ships a native Linux client with BattlEye enabled (since Jan 2025). Forcing the Windows build through Proton is the main launch-blocker and is unnecessary - the native client is recommended and BattlEye works natively."
+        fix:
+          type: info
+          value: "In Steam: War Thunder -> Properties -> Compatibility -> uncheck 'Force the use of a specific Steam Play compatibility tool' so the native Linux client is used instead of Proton."
+          verified: false
+          source: "gamingonlinux.com/2025/01/war-thunder-gets-battleye-anti-cheat-enabled-for-linux (retrieved 2026-07-15)"
+
+      - symptom: "Heavy stutter and frame drops in-game"
+        cause: "The DirectX 11/12 render paths perform poorly on Linux; Vulkan gives far smoother frame times. Vulkan is the default since Dec 2020 but can get reset to a DX backend."
+        fix:
+          type: info
+          value: "In-game: Options -> Graphics -> set 'Graphics API' to Vulkan, then restart the client. This is the single most effective performance change on Linux."
+          verified: false
+          source: "gamingonlinux.com/2020/11/war-thunder-vulkan-by-default-on-linux (retrieved 2026-07-15)"
+
+      - symptom: "Game feels unstable / hitchy at very high framerates (100+ fps)"
+        cause: "Uncapped high FPS can destabilize frame pacing on the native client."
+        fix:
+          type: info
+          value: "In-game: Options -> Graphics -> enable Vsync (or set a frame-rate limit) to stabilize frame pacing."
+          verified: false
+          source: "steamcommunity.com/app/236390/discussions/4/603016087419812728 (retrieved 2026-07-15)"
+
+
+  - name: "Tom Clancy's Rainbow Six Siege"
+    steam_id: 359550
+    aliases: ["r6", "rainbow six siege", "siege"]
+    issues:
+      - symptom: "Rainbow Six Siege (Siege X) launches under Proton but kicks you back to the menu / bans on connect, so online multiplayer - the entire game - is unplayable on Linux"
+        cause: "The game uses BattlEye anti-cheat. BattlEye has full Proton support, but Ubisoft has not enabled the Proton/Linux flag on their backend, so Linux clients are rejected at the anti-cheat handshake. This is a server-side vendor decision - no launch option, Proton version, or config can bypass it."
+        fix:
+          type: info
+          value: "Not playable on Linux. BattlEye works with Proton, but Ubisoft has not opted in, so Linux players are kicked from all multiplayer. There is no working launch option or workaround - wait for Ubisoft to enable it. Track status at areweanticheatyet.com and protondb.com/app/359550."
+          verified: false
+          source: "protondb.com/app/359550 (retrieved 2026-07-15)"
+
+
+  - name: "ARC Raiders"
+    steam_id: 1808500
+    aliases: ["arc raiders", "arc"]
+    issues:
+      - symptom: "Game closes on launch / match start with 'forbidden tools error code: ARAV1011' after the anti-cheat switch from EAC to Denuvo AC"
+        cause: "Embark migrated ARC Raiders from Easy Anti-Cheat to Denuvo Anti-Cheat (June 2026), which broke the older EAC Proton path. Valve added the fix to the Proton Hotfix branch and made it the default compatibility tool for this appid; users pinned to a plain Proton build still hit ARAV1011."
+        fix:
+          type: info
+          value: "In Steam, right-click ARC Raiders -> Properties -> Compatibility: leave 'Force a specific Steam Play compatibility tool' UNticked so the default Proton Hotfix is used, or explicitly select Proton Hotfix (fallback: Proton Experimental). Keep it updated."
+          verified: false
+          source: "gamingonlinux.com/2026/06/arc-raiders-is-broken-for-some-linux-steamos-players (retrieved 2026-07-15)"
+
+      - symptom: "UE5 traversal/shader stutter and poor 1% lows during gameplay; frame pacing worse than Windows"
+        cause: "ARC Raiders is Unreal Engine 5; Proton's default Win32 sync (esync/fsync) adds overhead under heavy thread contention. NTSYNC (in-kernel Windows sync primitives) lowers that overhead on kernels that ship the ntsync module (CachyOS does)."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_NTSYNC=1 %command%"
+          verified: false
+          source: "protondb.com/app/1808500 (retrieved 2026-07-15)"
+
+      - symptom: "Hard crash when a match is found while the game window is unfocused/minimized (common with tiling WMs and alt-tabbing)"
+        cause: "The renderer trips when the window loses focus at the matchmaking handoff; unrelated to Proton version."
+        fix:
+          type: info
+          value: "In-game, enable Settings -> Accessibility -> 'Bring game to foreground on match found'. Avoid alt-tabbing away during matchmaking."
+          verified: false
+          source: "steamcommunity.com/app/1808500 (retrieved 2026-07-15)"
+
+
+  - name: "Delta Force"
+    steam_id: 2507950
+    aliases: ["delta force"]
+    issues:
+      - symptom: "Delta Force does not launch on desktop Linux - the game exits immediately or shows an anti-cheat error at startup"
+        cause: "Delta Force uses Anti-Cheat Expert (ACE), a kernel-level anti-cheat whose Linux/Proton support is Denied by the developer. ACE only whitelists native Steam Deck CPUs; all other desktop Linux systems are blocked, so the game cannot run regardless of Proton version."
+        fix:
+          type: info
+          value: "Not playable on desktop Linux. ACE anti-cheat blocks all non-Steam-Deck Linux hardware and the developer has not enabled Proton support. There is no working launch option or config fix. Watch areweanticheatyet.com for a status change if the developer ever enables ACE for Proton."
+          verified: false
+          source: "areweanticheatyet.com/game/delta-force-hawk-ops (retrieved 2026-07-15)"
+
+
+  - name: "Marvel Rivals"
+    steam_id: 2767030
+    aliases: ["marvel rivals", "rivals"]
+    issues:
+      - symptom: "Game bounces back to desktop / refuses to launch on Linux (fails NetEase launcher/anti-cheat platform check)"
+        cause: "Marvel Rivals' NetEase launcher gates startup on the Steam Deck runtime flag; without it, Proton launches can fail on regular desktop Linux."
+        fix:
+          type: launch_option
+          value: "SteamDeck=1 %command%"
+          verified: false
+          source: "gamingonlinux.com/2026/07/valve-fix-up-marvel-rivals-on-steamos-linux-with-proton-hotfix (retrieved 2026-07-15)"
+
+      - symptom: "Constant UE5 traversal/shader stutter and frame hitching in matches"
+        cause: "Unreal Engine 5 compiles PSOs/shaders on-the-fly during play; forcing eager PSO precompilation reduces the runtime hitching many Linux users report."
+        fix:
+          type: launch_option
+          value: "%command% -PSOCompileMode=1"
+          verified: false
+          source: "steamcommunity.com/app/2767030/discussions/0/600769324985108788 (retrieved 2026-07-15)"
+
+
+  - name: "Dead by Daylight"
+    steam_id: 381210
+    aliases: ["dbd", "dead by daylight"]
+    issues:
+      - symptom: "Game installs but fails to connect to online matches / stuck on a 'disconnected' or EAC error (never reaches lobbies)"
+        cause: "Dead by Daylight requires Easy Anti-Cheat. On the Steam version EAC is enabled for Proton and works automatically, but the 'Proton EasyAntiCheat Runtime' component must be present; if missing, matchmaking fails."
+        fix:
+          type: info
+          value: "In Steam, install/enable 'Proton EasyAntiCheat Runtime' (Library -> Tools) and run the Steam version (the Epic build is not reliably recognized by the Proton EAC runtime). No launch option is needed on Steam - EAC is enabled server-side for Proton."
+          verified: false
+          source: "areweanticheatyet.com/game/dead-by-daylight (retrieved 2026-07-15)"
+
+      - symptom: "Traversal/shader stutter and inconsistent frame pacing during matches (Unreal Engine 4 hitching)"
+        cause: "UE4 CPU-bound frame pacing plus shader compilation causes micro-stutter; default Proton scheduling does not pin the CPU governor to performance."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/381210 (retrieved 2026-07-15)"
+
+
+  - name: "Deadlock"
+    steam_id: 1422450
+    aliases: ["deadlock"]
+    issues:
+      - symptom: "Game launches but no window ever appears (black/no window) on a Wayland session"
+        cause: "Under Proton, SDL picks the Wayland video driver and fails to spawn a window; forcing the X11/XWayland backend fixes it."
+        when: { session: wayland }
+        fix:
+          type: launch_option
+          value: "SDL_VIDEODRIVER=x11 %command%"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3316773673 (retrieved 2026-07-15)"
+
+      - symptom: "Micro-stutter and lower/inconsistent FPS in matches"
+        cause: "Source 2 runs its native Vulkan renderer better than the DXVK/DX11 path, and gamemode keeps the CPU on a performance profile; this reduces translation overhead and frame-pacing hitches."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "gamemoderun %command% -vulkan"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3316773673 (retrieved 2026-07-15)"
+
+      - symptom: "Crash when connecting to a match / mid-game under Proton"
+        cause: "Source 2 exceeds Linux's default per-process memory-map limit (vm.max_map_count 65530). CachyOS already ships the 1048576 default, so this usually does not apply here."
+        fix:
+          type: info
+          value: "Set vm.max_map_count=1048576 via a /etc/sysctl.d/ drop-in (already the default on CachyOS and most modern kernels, so check with 'sysctl vm.max_map_count' first)."
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3316773673 (retrieved 2026-07-15)"
+
+
+  - name: "Stardew Valley"
+    steam_id: 413150
+    aliases: ["stardew", "stardew valley"]
+    issues:
+      - symptom: "No sound at all in the native Linux build (game launches and plays, but audio is completely silent)"
+        cause: "The bundled FNA/SDL layer sometimes fails to auto-select a working audio backend on modern PipeWire/PulseAudio setups, so SDL comes up with no device."
+        fix:
+          type: launch_option
+          value: "SDL_AUDIODRIVER=pulseaudio %command%"
+          verified: false
+          source: "steamcommunity.com/app/413150/discussions/0/4849904631720023833 (retrieved 2026-07-15)"
+
+      - symptom: "Unsure whether to run the native Linux build or force the Windows version through Proton"
+        cause: "Stardew has a first-class native Linux (FNA/XNA) build with no anti-cheat; some players prefer Proton for a more Windows-identical setup."
+        fix:
+          type: info
+          value: "The native Linux build is Platinum-rated and generally just works - use it by default. Only fall back to a Proton version (Properties -> Compatibility -> Force Steam Play) if you hit the silent-audio issue and the SDL_AUDIODRIVER launch option does not resolve it."
+          verified: false
+          source: "protondb.com/app/413150 (retrieved 2026-07-15)"
+
+
+  - name: "Battlefield 6"
+    steam_id: 2807960
+    aliases: ["bf6", "battlefield 6"]
+    issues:
+      - symptom: "Battlefield 6 does not launch on Linux/Proton at all"
+        cause: "EA Javelin kernel-level anti-cheat requires Secure Boot and blocks Proton/Wine; the developer has not enabled Linux support, so the game is denied on any Linux system including Steam Deck."
+        fix:
+          type: info
+          value: "Battlefield 6 will NOT run on Linux. EA Javelin anti-cheat is kernel-level and Secure-Boot-gated, and EA has explicitly denied Linux/Proton and Steam Deck support. There is no workaround - do not attempt launch options. (EA has said they are exploring a future Javelin Linux path, but nothing is available as of 2026-07-15.)"
+          verified: false
+          source: "areweanticheatyet.com/game/battlefield-6 (retrieved 2026-07-15)"
+
+
+  - name: "Grand Theft Auto V Enhanced"
+    steam_id: 3240220
+    aliases: ["gta v enhanced", "gtav enhanced"]
+    issues:
+      - symptom: "Game won't start / hangs at launch, and GTA Online is blocked; only single-player Story Mode works on Linux"
+        cause: "GTA V Enhanced ships BattlEye (kernel-mode). On Linux it is not authorized, so Online is blocked; launching without BattlEye lets the single-player Story Mode run."
+        fix:
+          type: launch_option
+          value: "%command% -nobattleye"
+          verified: false
+          source: "protondb.com/app/3240220 (retrieved 2026-07-15)"
+
+      - symptom: "Runs but performance is uneven / CPU sits in a low-power state during play"
+        cause: "The default CPU governor isn't pinned for the game; feral gamemode raises it to performance for the process."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/3240220 (retrieved 2026-07-15)"
+
+      - symptom: "Crashes on launch on older Proton, and framerate locks to 30fps"
+        cause: "Early builds crashed until Proton Experimental added a GTA V Enhanced fix (March 2025); in-game V-Sync also caps to 30fps."
+        fix:
+          type: info
+          value: "Use Proton Experimental (or Proton Hotfix), and turn V-Sync OFF in the in-game graphics settings to remove the 30fps cap. Note: -nobattleye is safe for Story Mode only - do NOT try to reach GTA Online on Linux, bypassing BattlEye risks an account ban."
+          verified: false
+          source: "gamingonlinux.com/2025/03/proton-experimental-adds-fixes-for-gta-v-enhanced (retrieved 2026-07-15)"
+
+
+  - name: "Team Fortress 2"
+    steam_id: 440
+    aliases: ["tf2", "team fortress 2"]
+    issues:
+      - symptom: "Game fails to launch / black screen on the native Linux build after the 64-bit update"
+        cause: "Since the April 2024 64-bit port, the native Linux client renders through Vulkan (DXVK) by default and needs a Vulkan 1.3 driver; if Vulkan init fails the game won't start. The documented fallback is legacy OpenGL (-gl). (RTX 2070 SUPER on current NVIDIA drivers supports Vulkan 1.3, so this is only a fallback.)"
+        fix:
+          type: launch_option
+          value: "%command% -gl"
+          verified: false
+          source: "gamingonlinux.com/2024/04/team-fortress-2-gets-64bit-support-plus-vulkan-for-linux-via-dxvk (retrieved 2026-07-15)"
+
+      - symptom: "Low / stuttery FPS despite a capable GPU"
+        cause: "TF2's multicore material-system threading (mat_queue_mode) is not forced on by default; enabling mode 2 uses the multithreaded renderer and is the single most effective TF2 CPU-side FPS boost."
+        fix:
+          type: launch_option
+          value: "%command% +mat_queue_mode 2"
+          verified: false
+          source: "docs.comfig.app/latest/tf2/launchopts_linux (retrieved 2026-07-15)"
+
+      - symptom: "Slow startup and minor input/frame overhead"
+        cause: "Standard TF2 Linux startup flags: skip the intro video and disable joystick/controller polling, which shortens launch time and removes idle input polling overhead."
+        fix:
+          type: launch_option
+          value: "%command% -novid -nojoy"
+          verified: false
+          source: "techy.how/tutorials/tf2-launch-options (retrieved 2026-07-15)"
+
+
+  - name: "Euro Truck Simulator 2"
+    steam_id: 227300
+    aliases: ["ets2", "euro truck simulator 2"]
+    issues:
+      - symptom: "Euro Truck Simulator 2 (native Linux build) fails to launch or you're unsure if it needs Proton"
+        cause: "ETS2 ships a first-class native Linux build with no anti-cheat, so it launches directly with no compatibility layer or workaround required."
+        fix:
+          type: info
+          value: "Use the native Linux build (default). No Proton, no anti-cheat, no launch options needed to start. ProtonDB rates it Platinum even under Proton, and the native build is the recommended path."
+          verified: false
+          source: "protondb.com/app/227300 (retrieved 2026-07-15)"
+
+      - symptom: "Poor/stuttery performance, low FPS or bad frame times on the native Linux build"
+        cause: "The native build defaults to the OpenGL renderer, which delivers worse frame pacing and lower FPS on Linux; the prism3d engine's Vulkan backend is far smoother (multiple users report FPS roughly doubling)."
+        fix:
+          type: launch_option
+          value: "%command% -rdevice vk"
+          verified: false
+          source: "steamcommunity.com/app/227300/discussions/0/4521136333470076785 (retrieved 2026-07-15)"
+
+      - symptom: "Black/blank screen on launch or after changing graphics settings on NVIDIA + Wayland"
+        cause: "Reported NVIDIA-driver-on-Wayland instability (Xid 69) with the native build; not a game bug and no clean single fix is confirmed upstream."
+        when: { session: wayland }
+        fix:
+          type: info
+          value: "If the window comes up black, try launching under an X11 session and/or the Vulkan renderer (%command% -rdevice vk); the upstream thread is inconclusive, so treat as a workaround to test, not a guaranteed fix."
+          verified: false
+          source: "bbs.archlinux.org/viewtopic.php?id=310431 (retrieved 2026-07-15)"
+
+
+  - name: "Left 4 Dead 2"
+    steam_id: 550
+    aliases: ["l4d2", "left 4 dead 2"]
+    issues:
+      - symptom: "Native Linux build crashes or shows a black screen on launch (default GL renderer)"
+        cause: "The legacy OpenGL renderer in the native L4D2 Linux build is unstable on modern Mesa/NVIDIA + Wayland stacks; the game hangs on a blank window at startup. Vulkan is far more stable."
+        fix:
+          type: launch_option
+          value: "%command% -vulkan"
+          verified: false
+          source: "redstrate.com/blog/2026/01/stopping-left-4-dead-2-from-crashing-on-linux (retrieved 2026-07-15)"
+
+      - symptom: "Low/stuttery FPS and slow startup on the native Linux build"
+        cause: "Intro logo videos delay launch and the renderer defaults to single-threaded material queueing, leaving CPU cores idle."
+        fix:
+          type: launch_option
+          value: "%command% -novid +mat_queue_mode 2"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=3429796322 (retrieved 2026-07-15)"
+
+
+  - name: "Rocket League"
+    steam_id: 252950
+    aliases: ["rocket league", "rl"]
+    issues:
+      - symptom: "Game won't launch on Linux (exits immediately or shows no compatible build)"
+        cause: "Psyonix removed the native Linux build in March 2020 when the game moved to Epic; only the Windows build ships now, so Steam must be told to run it through Proton."
+        fix:
+          type: info
+          value: "In Steam, right-click Rocket League -> Properties -> Compatibility -> tick 'Force the use of a specific Steam Play compatibility tool' and select Proton (Proton 9/10 or GE-Proton). This is a Steam Play checkbox, not a %command% flag."
+          verified: false
+          source: "protondb.com/app/252950 (retrieved 2026-07-15)"
+
+      - symptom: "Online matches (Casual/Competitive/Tournaments) fail or won't connect since the anti-cheat update"
+        cause: "As of the 2026-04-30 update, Easy Anti-Cheat is required for all online modes. Psyonix explicitly enabled EAC's Proton support, so it works on Linux, but an outdated Proton or disabled EAC runtime can block online connectivity."
+        fix:
+          type: info
+          value: "Keep EAC enabled for online play and use a current Proton (Proton 10.x or recent GE-Proton) so the bundled EAC runtime loads; online play is confirmed working through Proton. EAC can be toggled off only for offline/training/LAN/replay."
+          verified: false
+          source: "gamingonlinux.com/2026/02/rocket-league-is-adding-easy-anti-cheat-linux-still-supported-with-proton (retrieved 2026-07-15)"
+
+      - symptom: "Frame drops / stutter in fast-paced matches under Proton"
+        cause: "Default scheduler/governor behavior can leave the CPU below peak during gameplay; Feral GameMode raises the performance profile for the game process and reduces frametime spikes."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/252950 (retrieved 2026-07-15)"
+
+
+  - name: "Call of Duty"
+    steam_id: 1938090
+    aliases: ["cod", "call of duty", "warzone"]
+    issues:
+      - symptom: "Game exits immediately on launch under Proton with an anti-cheat error; never reaches the menu"
+        cause: "Call of Duty (unified app) ships Activision's RICOCHET kernel-level anti-cheat, a Windows-kernel-only driver that Proton/Wine cannot run. It actively detects Wine/Proton and blocks the game."
+        fix:
+          type: info
+          value: "Not playable on Linux. RICOCHET anti-cheat blocks Proton entirely; there is no fix or workaround. Do not attempt to bypass it - circumventing RICOCHET risks a permanent account ban."
+          verified: false
+          source: "gamingonlinux.com/anticheat/vendor/ricochet-anti-cheat (retrieved 2026-07-15)"
+
+
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
 # =====================================================================
