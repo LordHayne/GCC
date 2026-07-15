@@ -213,21 +213,11 @@ class GameDoctorPage(Gtk.Box):
     def __init__(self, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
 
-        # Page header, consistent with the other pages
-        head = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        head.set_margin_start(16); head.set_margin_end(16)
-        head.set_margin_top(16); head.set_margin_bottom(8)
-        t = Gtk.Label(label="SYSTEM DOCTOR"); t.add_css_class("page-title"); t.set_halign(Gtk.Align.START)
-        head.append(t)
-        st = Gtk.Label(label="Scan for common Linux gaming issues and fix them with one click")
-        st.add_css_class("page-subtitle"); st.set_halign(Gtk.Align.START)
-        head.append(st)
-        self.append(head)
-
-        # Scan button + status
+        # Title lives in the shared header now — this page starts with its
+        # scan button + status row.
         top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         top_bar.set_margin_start(16); top_bar.set_margin_end(16)
-        top_bar.set_margin_top(4); top_bar.set_margin_bottom(8)
+        top_bar.set_margin_top(16); top_bar.set_margin_bottom(8)
 
         self.scan_btn = Gtk.Button(label="Scan System")
         self.scan_btn.add_css_class("btn-apply")
@@ -594,29 +584,24 @@ class GamesPage(Gtk.Box):
         self.win = win
         self.db, self.db_err = game_db.load_games()
 
-        # Header + rescan
+        # Title lives in the shared header now — this page starts with the
+        # info line + rescan button.
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         header.set_margin_start(16)
         header.set_margin_end(16)
         header.set_margin_top(16)
         header.set_margin_bottom(8)
-        title = Gtk.Label(label="GAMES")
-        title.add_css_class("page-title")
-        title.set_halign(Gtk.Align.START)
-        header.append(title)
+        self.subtitle = Gtk.Label(label="")
+        self.subtitle.add_css_class("page-subtitle")
+        self.subtitle.set_halign(Gtk.Align.START)
+        self.subtitle.set_wrap(True)
+        header.append(self.subtitle)
         spacer = Gtk.Box(); spacer.set_hexpand(True); header.append(spacer)
         self.rescan_btn = Gtk.Button(label="Rescan")
         self.rescan_btn.add_css_class("btn-apply")
         self.rescan_btn.connect("clicked", lambda *_: self.rescan())
         header.append(self.rescan_btn)
         self.append(header)
-
-        self.subtitle = Gtk.Label(label="")
-        self.subtitle.add_css_class("page-subtitle")
-        self.subtitle.set_halign(Gtk.Align.START)
-        self.subtitle.set_margin_start(16)
-        self.subtitle.set_wrap(True)
-        self.append(self.subtitle)
         self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
         scroll = Gtk.ScrolledWindow()
@@ -940,9 +925,47 @@ class CommandCenter(Adw.ApplicationWindow):
             color: #7aa2f7;
             border-left: 3px solid #7aa2f7;
         }
-        .sidebar-title { font-size: 13px; font-weight: 700; color: #c0caf5; letter-spacing: 1.5px; }
+        .sidebar-title { font-size: 12px; font-weight: 700; color: #c0caf5; letter-spacing: 1.5px; }
         .sidebar-subtitle { font-size: 10px; color: #565f89; }
         .sidebar-footer { font-size: 9px; color: #565f89; }
+        .sidebar-item { padding: 9px 12px; border-radius: 9px; color: #565f89; font-weight: 700; font-size: 13px; letter-spacing: 0.4px; border-left: 3px solid transparent; }
+
+        /* Side hero status box */
+        .side-hero {
+            background: rgba(158,206,106,0.06); border: 1px solid rgba(158,206,106,0.2);
+            border-radius: 11px; padding: 12px;
+        }
+        .side-hero-gaming {
+            background: linear-gradient(135deg, rgba(224,175,104,0.1), rgba(247,118,142,0.1));
+            border: 1px solid rgba(224,175,104,0.3);
+        }
+        .hero-dot { border-radius: 50%; background: #9ece6a; box-shadow: 0 0 8px #9ece6a; }
+        .hero-dot-gaming { background: #e0af68; box-shadow: 0 0 8px #e0af68; }
+        .hero-mode-gaming { color: #e0af68; }
+        .hero-mode { font-size: 10px; letter-spacing: 1.5px; font-weight: 700; color: #9ece6a; }
+        .hero-sub { font-size: 10px; color: #a9b1d6; font-family: 'JetBrains Mono', monospace; }
+        .status-footer { font-size: 9px; color: #414868; font-family: 'JetBrains Mono', monospace; }
+        .logo-img { border-radius: 9px; }
+
+        /* Shared header */
+        .header-title { font-size: 19px; font-weight: 700; color: #c0caf5; letter-spacing: 2.5px; }
+        .header-sub { font-size: 10px; color: #565f89; font-family: 'JetBrains Mono', monospace; }
+
+        /* Game Mode toggle pill */
+        .gm-toggle {
+            border-radius: 12px; padding: 9px 14px;
+            background: rgba(158,206,106,0.06); border: 1px solid rgba(158,206,106,0.2);
+        }
+        .gm-toggle-on {
+            background: linear-gradient(135deg, rgba(224,175,104,0.1), rgba(247,118,142,0.1));
+            border: 1px solid rgba(224,175,104,0.3);
+        }
+        .gm-toggle-label { font-weight: 700; font-size: 13px; letter-spacing: 1.5px; color: #9ece6a; }
+        .gm-toggle-label-on { color: #e0af68; }
+        .gm-pill { border-radius: 13px; background: #2a2b3d; padding: 3px; }
+        .gm-pill-on { background: #e0af68; }
+        .gm-knob { border-radius: 50%; background: #13141c; margin-left: 0px; }
+        .gm-knob-on { margin-left: 22px; }
 
         /* === Page headers === */
         .page-title {
@@ -1240,6 +1263,9 @@ class CommandCenter(Adw.ApplicationWindow):
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content_box.set_hexpand(True)
 
+        # Shared header: page title/subtitle (left) + Game Mode toggle (right)
+        content_box.append(self._build_shared_header())
+
         # ViewStack for page switching
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
@@ -1268,113 +1294,212 @@ class CommandCenter(Adw.ApplicationWindow):
         content_box.append(self.view_stack)
         main_box.append(content_box)
 
-        # Default to Dashboard
-        self.view_stack.set_visible_child_name("dashboard")
+        # Default to Dashboard (also sets header title + active nav icon)
+        self.switch_page("dashboard")
+
+    # Line-icon paths from the v2 design (16x16 viewBox, stroke-based).
+    NAV_ICONS = {
+        "dashboard": "M2 8.5 8 3l6 5.5M4 7.5V13h8V7.5",
+        "games": "M5 6h6a3.5 3.5 0 0 1 0 7c-1.2 0-2-.6-2.4-1.4H7.4C7 12.4 6.2 13 5 13"
+                 "a3.5 3.5 0 0 1 0-7ZM5.5 8.5v2M4.5 9.5h2M10.8 9h.01M12.2 10h.01",
+        "doctor": "M8 2.5l4.5 2v3.5c0 3-2 5-4.5 5.5-2.5-.5-4.5-2.5-4.5-5.5V4.5L8 2.5ZM8 6v4M6 8h4",
+        "benchmark": "M3 13h2V8h2v5h2V5h2v8h2M2 13h12",
+        "settings": "M8 5.5A2.5 2.5 0 1 1 8 10.5 2.5 2.5 0 0 1 8 5.5ZM8 1.8v1.7M8 12.5v1.7"
+                    "M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2"
+                    "M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2",
+    }
+
+    @staticmethod
+    def _svg_texture(path_d, color, size=16):
+        """Render a stroke-SVG path to a Gdk.Texture, or None if the SVG
+        pixbuf loader is unavailable (librsvg missing)."""
+        from gi.repository import GdkPixbuf
+        svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+               f'viewBox="0 0 16 16" fill="none" stroke="{color}" stroke-width="1.6" '
+               f'stroke-linecap="round" stroke-linejoin="round"><path d="{path_d}"/></svg>')
+        try:
+            loader = GdkPixbuf.PixbufLoader.new_with_type("svg")
+            loader.write(svg.encode())
+            loader.close()
+            return Gdk.Texture.new_for_pixbuf(loader.get_pixbuf())
+        except Exception:
+            return None
+
+    def _set_nav_icon(self, item, active):
+        tex = self._svg_texture(self.NAV_ICONS[item._page],
+                                "#7aa2f7" if active else "#565f89")
+        if tex is not None:
+            item._icon.set_from_paintable(tex)
 
     # ============================================================
     # Sidebar
     # ============================================================
     def _build_sidebar(self):
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         sidebar.add_css_class("sidebar")
-        sidebar.set_size_request(180, -1)
+        sidebar.set_size_request(206, -1)
 
-        # App logo + name at top
+        # App logo + two-line name
         logo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        logo_box.set_margin_start(14)
-        logo_box.set_margin_end(14)
-        logo_box.set_margin_top(16)
-        logo_box.set_margin_bottom(16)
-
-        # Logo image (circular, 36px)
+        logo_box.set_margin_start(12); logo_box.set_margin_end(12)
+        logo_box.set_margin_top(18); logo_box.set_margin_bottom(16)
         try:
-            logo_img = Gtk.Image.new_from_file("/home/thomas/.local/share/icons/hicolor/256x256/apps/gaming-command-center.png")
+            logo_img = Gtk.Image.new_from_file(
+                "/home/thomas/.local/share/icons/hicolor/256x256/apps/gaming-command-center.png")
             logo_img.set_pixel_size(36)
+            logo_img.add_css_class("logo-img")
             logo_box.append(logo_img)
-        except:
+        except Exception:
             pass
-
-        # Text column
-        text_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        title = Gtk.Label(label="Gaming")
+        title = Gtk.Label(label="GAMING\nCOMMAND CENTER")
         title.set_halign(Gtk.Align.START)
+        title.set_justify(Gtk.Justification.LEFT)
         title.add_css_class("sidebar-title")
-        text_col.append(title)
-
-        subtitle = Gtk.Label(label="Command Center")
-        subtitle.set_halign(Gtk.Align.START)
-        subtitle.add_css_class("sidebar-subtitle")
-        text_col.append(subtitle)
-
-        logo_box.append(text_col)
+        logo_box.append(title)
         sidebar.append(logo_box)
 
-        # Navigation items
-        nav_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        nav_box.set_margin_start(8)
-        nav_box.set_margin_end(8)
-
+        # Navigation items with icons
+        nav_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        nav_box.set_margin_start(10); nav_box.set_margin_end(10)
         self.sidebar_items = {}
-        nav_entries = [
-            ("Dashboard", "dashboard"),
-            ("Games", "games"),
-            ("System Doctor", "doctor"),
-            ("Benchmark", "benchmark"),
+        for label, page_name in [
+            ("Dashboard", "dashboard"), ("Games", "games"),
+            ("System Doctor", "doctor"), ("Benchmark", "benchmark"),
             ("Settings", "settings"),
-        ]
-        for label, page_name in nav_entries:
+        ]:
             item = self._make_sidebar_item(label, page_name)
             nav_box.append(item)
             self.sidebar_items[page_name] = item
-
         sidebar.append(nav_box)
 
-        # Spacer to push footer to bottom
-        spacer = Gtk.Box()
-        spacer.set_vexpand(True)
-        sidebar.append(spacer)
+        spacer = Gtk.Box(); spacer.set_vexpand(True); sidebar.append(spacer)
 
-        # Status footer at bottom
-        footer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        footer_box.set_margin_start(14)
-        footer_box.set_margin_end(14)
-        footer_box.set_margin_top(8)
-        footer_box.set_margin_bottom(14)
+        # Hero status box (mode + detail), like the design's side widget
+        hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        hero.add_css_class("side-hero")
+        hero.set_margin_start(12); hero.set_margin_end(12); hero.set_margin_bottom(10)
+        self.side_hero = hero
+        mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        self.hero_dot = Gtk.Box(); self.hero_dot.set_size_request(7, 7)
+        self.hero_dot.add_css_class("hero-dot")
+        mode_row.append(self.hero_dot)
+        self.hero_mode = Gtk.Label(label="NORMAL MODE"); self.hero_mode.set_xalign(0)
+        self.hero_mode.add_css_class("hero-mode")
+        mode_row.append(self.hero_mode)
+        hero.append(mode_row)
+        self.hero_sub = Gtk.Label(label="all cores · schedutil"); self.hero_sub.set_xalign(0)
+        self.hero_sub.add_css_class("hero-sub")
+        hero.append(self.hero_sub)
+        sidebar.append(hero)
 
+        # governor / helper line
+        foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        foot.set_margin_start(14); foot.set_margin_end(14); foot.set_margin_bottom(12)
         self.status_footer_lbl = Gtk.Label(label="")
-        self.status_footer_lbl.set_halign(Gtk.Align.START)
-        self.status_footer_lbl.set_markup(
-            "<span color='#565f89'>  System Ready</span>")
-        footer_box.append(self.status_footer_lbl)
-
-        sidebar.append(footer_box)
+        self.status_footer_lbl.set_xalign(0); self.status_footer_lbl.set_hexpand(True)
+        self.status_footer_lbl.add_css_class("status-footer")
+        foot.append(self.status_footer_lbl)
+        helper_ok = Gtk.Label()
+        helper_ok.set_markup("<span color='#9ece6a'>helper ✓</span>")
+        helper_ok.add_css_class("status-footer")
+        foot.append(helper_ok)
+        sidebar.append(foot)
 
         return sidebar
 
     def _make_sidebar_item(self, label_text, page_name):
-        """Create a clickable sidebar navigation item."""
-        item = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        """Clickable nav item with an icon that recolors when active."""
+        item = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=11)
         item.add_css_class("sidebar-item")
+        item._page = page_name
+
+        icon = Gtk.Image()
+        icon.set_pixel_size(16)
+        item._icon = icon
+        item.append(icon)
 
         lbl = Gtk.Label(label=label_text)
         lbl.set_halign(Gtk.Align.START)
         item.append(lbl)
         item._label = lbl
 
+        self._set_nav_icon(item, False)
+
         gesture = Gtk.GestureClick()
         gesture.connect("pressed", lambda *args: self.switch_page(page_name))
         item.add_controller(gesture)
-
+        item.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
         return item
 
+    def side_hero_set(self, gaming):
+        self.side_hero.set_css_classes(["side-hero", "side-hero-gaming"] if gaming
+                                       else ["side-hero"])
+
+    def _build_shared_header(self):
+        """Title/subtitle on the left, the Game Mode toggle on the right —
+        visible on every page, like the v2 design."""
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        bar.add_css_class("page-header")
+        bar.set_margin_start(24); bar.set_margin_end(24)
+        bar.set_margin_top(18); bar.set_margin_bottom(6)
+
+        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        self.header_title = Gtk.Label(label="DASHBOARD"); self.header_title.set_xalign(0)
+        self.header_title.add_css_class("header-title")
+        txt.append(self.header_title)
+        self.header_sub = Gtk.Label(label=""); self.header_sub.set_xalign(0)
+        self.header_sub.add_css_class("header-sub")
+        txt.append(self.header_sub)
+        bar.append(txt)
+
+        spacer = Gtk.Box(); spacer.set_hexpand(True); bar.append(spacer)
+
+        # Game Mode toggle (clickable pill)
+        gm = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        gm.add_css_class("gm-toggle")
+        self.gm_toggle_lbl = Gtk.Label(label="GAME MODE OFF")
+        self.gm_toggle_lbl.add_css_class("gm-toggle-label")
+        gm.append(self.gm_toggle_lbl)
+        pill = Gtk.Box(); pill.set_size_request(48, 26)
+        pill.add_css_class("gm-pill")
+        knob = Gtk.Box(); knob.set_size_request(20, 20)
+        knob.add_css_class("gm-knob")
+        knob.set_halign(Gtk.Align.START); knob.set_valign(Gtk.Align.CENTER)
+        pill.append(knob)
+        self.gm_pill = pill; self.gm_knob = knob
+        gm.append(pill)
+        click = Gtk.GestureClick()
+        click.connect("pressed", lambda *a: self.on_toggle_gm(None))
+        gm.add_controller(click)
+        gm.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+        self.gm_toggle = gm
+        bar.append(gm)
+        return bar
+
+    # Page title + subtitle shown in the shared header.
+    PAGE_TITLES = {
+        "dashboard": ("DASHBOARD", None),  # subtitle filled with real specs
+        "games": ("GAMES", "per-game fixes from community database · steam library scan"),
+        "doctor": ("SYSTEM DOCTOR", "system-level checks: drivers, kernel, gamemode, audio, session"),
+        "benchmark": ("BENCHMARK", "find your best CCD · single-core boost test per thread"),
+        "settings": ("SETTINGS", "monitoring · game fixes · game mode · about"),
+    }
+
     def switch_page(self, page_name):
-        """Switch the ViewStack to the selected page and update sidebar CSS."""
+        """Switch the ViewStack, recolor nav icons, update the shared header."""
         self.view_stack.set_visible_child_name(page_name)
         for name, item in self.sidebar_items.items():
-            if name == page_name:
-                item.add_css_class("sidebar-item-active")
-            else:
-                item.remove_css_class("sidebar-item-active")
+            active = name == page_name
+            item.set_css_classes(["sidebar-item", "sidebar-item-active"] if active
+                                 else ["sidebar-item"])
+            self._set_nav_icon(item, active)
+        title, sub = self.PAGE_TITLES.get(page_name, (page_name.upper(), ""))
+        self.header_title.set_label(title)
+        if sub is None:
+            cpu = self.topo.get_cpu_name()
+            gpu = self.gpu.name or "GPU"
+            sub = f"{cpu} · {gpu} · CachyOS / Wayland"
+        self.header_sub.set_label(sub)
 
     # ============================================================
     # Page Header Helper
@@ -1404,13 +1529,7 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     def _build_dashboard_page(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
-        # Top header
-        cpu_name = self.topo.get_cpu_name()
-        gpu_name = self.gpu.name if self.gpu.name else "NVIDIA GPU"
-        specs_text = f"{cpu_name}  -  {gpu_name}  -  CachyOS / Wayland"
-        page.append(self._page_header("DASHBOARD", specs_text))
-        page.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        # Title now lives in the shared header.
 
         # Scrollable 3-column content
         scroll = Gtk.ScrolledWindow()
@@ -1560,11 +1679,7 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     def _build_benchmark_page(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
-        page.append(self._page_header(
-            "BENCHMARK",
-            "Test each CPU core to find the best CCD for gaming"))
-        page.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        # Title now lives in the shared header.
 
         # Scrollable content
         scroll = Gtk.ScrolledWindow()
@@ -1793,8 +1908,7 @@ class CommandCenter(Adw.ApplicationWindow):
         cfg = load_config()
 
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        page.append(self._page_header("SETTINGS"))
-        page.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        # Title now lives in the shared header.
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
@@ -2167,44 +2281,66 @@ class CommandCenter(Adw.ApplicationWindow):
         self.lbl_temp.set_label(f"{d['temp']:.0f}")
         self.lbl_governor.set_label(d["gov"])
 
-        # Game mode banner + button
-        if d["game_mode"]:
-            parked = ", ".join(f"CCD{c}" for c in d["parked"])
-            self.banner.set_markup(
-                f"<span color='#e0af68' weight='600'>GAME MODE - {parked} parked, "
-                f"{cores} cores active</span>")
-            self.banner.add_css_class("banner-gaming")
-            self.banner.remove_css_class("banner-normal")
-            self.gm_btn.set_label("Disable Game Mode")
-            self.gm_btn.remove_css_class("btn-game-on")
-            self.gm_btn.add_css_class("btn-game-off")
-            self.status_footer_lbl.set_markup(
-                "<span color='#e0af68'>  Game Mode ON</span>")
+        gm_on = d["game_mode"]
+        parked = ", ".join(f"CCD{c}" for c in d["parked"])
+
+        # Shared header toggle
+        self.gm_toggle_lbl.set_label("GAME MODE ON" if gm_on else "GAME MODE OFF")
+        for w, on_cls in ((self.gm_toggle, "gm-toggle-on"),
+                          (self.gm_toggle_lbl, "gm-toggle-label-on"),
+                          (self.gm_pill, "gm-pill-on"), (self.gm_knob, "gm-knob-on")):
+            (w.add_css_class if gm_on else w.remove_css_class)(on_cls)
+
+        # Side hero box
+        if gm_on:
+            self.hero_mode.set_label("GAME MODE")
+            self.hero_sub.set_label(f"{parked} parked · {d['gov']}")
+            self.hero_mode.set_css_classes(["hero-mode", "hero-mode-gaming"])
+            self.hero_dot.set_css_classes(["hero-dot", "hero-dot-gaming"])
+            self.side_hero_set(True)
         else:
-            self.banner.set_markup(
-                f"<span color='#9ece6a' weight='600'>NORMAL - {cores} cores active</span>")
-            self.banner.add_css_class("banner-normal")
-            self.banner.remove_css_class("banner-gaming")
-            self.gm_btn.set_label("Enable Game Mode")
-            self.gm_btn.add_css_class("btn-game-on")
-            self.gm_btn.remove_css_class("btn-game-off")
-            self.status_footer_lbl.set_markup(
-                f"<span color='#9ece6a'>  {cores} cores active</span>")
+            self.hero_mode.set_label("NORMAL MODE")
+            self.hero_sub.set_label(f"all cores · {d['gov']}")
+            self.hero_mode.set_css_classes(["hero-mode"])
+            self.hero_dot.set_css_classes(["hero-dot"])
+            self.side_hero_set(False)
+        self.status_footer_lbl.set_label(f"governor: {d['gov']}")
+
+        # Old dashboard banner + button (still present until dashboard rebuild)
+        if hasattr(self, "banner"):
+            if gm_on:
+                self.banner.set_markup(
+                    f"<span color='#e0af68' weight='600'>GAME MODE - {parked} parked, "
+                    f"{cores} cores active</span>")
+                self.banner.add_css_class("banner-gaming")
+                self.banner.remove_css_class("banner-normal")
+                self.gm_btn.set_label("Disable Game Mode")
+                self.gm_btn.remove_css_class("btn-game-on")
+                self.gm_btn.add_css_class("btn-game-off")
+            else:
+                self.banner.set_markup(
+                    f"<span color='#9ece6a' weight='600'>NORMAL - {cores} cores active</span>")
+                self.banner.add_css_class("banner-normal")
+                self.banner.remove_css_class("banner-gaming")
+                self.gm_btn.set_label("Enable Game Mode")
+                self.gm_btn.add_css_class("btn-game-on")
+                self.gm_btn.remove_css_class("btn-game-off")
 
         # Game Mode needs something to park — a single-CCD CPU has nothing.
         single_ccd = d["ccd_count"] < 2
-        self.gm_btn.set_sensitive(not single_ccd and d["complete"])
+        gm_ok = not single_ccd and d["complete"]
+        self.gm_toggle.set_sensitive(gm_ok)
         if single_ccd:
-            self.gm_btn.set_tooltip_text(
-                "Game Mode needs a CPU with 2 or more CCDs (Ryzen 9 / Threadripper)")
+            tip = "Game Mode needs a CPU with 2 or more CCDs (Ryzen 9 / Threadripper)"
         elif not d["complete"]:
-            self.gm_btn.set_tooltip_text(
-                "CPU layout unknown while cores are parked — restore all cores first")
+            tip = "CPU layout unknown while cores are parked — restore all cores first"
         else:
-            keep = d["keep"]
-            self.gm_btn.set_tooltip_text(
-                f"Parks every CCD except CCD{keep} "
-                f"({self.topo.core_count(keep)} cores stay active)")
+            tip = (f"Parks every CCD except CCD{d['keep']} "
+                   f"({self.topo.core_count(d['keep'])} cores stay active)")
+        self.gm_toggle.set_tooltip_text(tip)
+        if hasattr(self, "gm_btn"):
+            self.gm_btn.set_sensitive(gm_ok)
+            self.gm_btn.set_tooltip_text(tip)
 
         # CCD cards
         for ccd_id, card in self.ccd_cards.items():
@@ -2286,10 +2422,14 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     # Game Mode Toggle
     # ============================================================
+    def _gm_status(self, msg, color="#9ece6a"):
+        if hasattr(self, "gm_status_lbl"):
+            self.gm_status_lbl.set_markup(
+                f"<span color='{color}'>{GLib.markup_escape_text(msg)}</span>")
+
     def on_toggle_gm(self, btn):
         if not self.topo.complete:
-            self.gm_status_lbl.set_markup(
-                "<span color='#f7768e'>CPU layout unknown — click 'Restore all cores' first</span>")
+            self._gm_status("CPU layout unknown — restore all cores first", "#f7768e")
             return
 
         active = self.topo.game_mode_active()
@@ -2297,12 +2437,13 @@ class CommandCenter(Adw.ApplicationWindow):
         plan = self.topo.park_plan(keep)
 
         if not active and not plan:
-            self.gm_status_lbl.set_markup(
-                "<span color='#f7768e'>Nothing to park — this CPU has only one CCD</span>")
+            self._gm_status("Nothing to park — this CPU has only one CCD", "#f7768e")
             return
 
-        self.gm_btn.set_sensitive(False)
-        self.gm_btn.set_label("Please wait...")
+        self.gm_toggle.set_sensitive(False)
+        if hasattr(self, "gm_btn"):
+            self.gm_btn.set_sensitive(False)
+            self.gm_btn.set_label("Please wait...")
 
         def run_in_thread():
             if active:
@@ -2316,9 +2457,10 @@ class CommandCenter(Adw.ApplicationWindow):
             time.sleep(0.5)
 
             def update_ui():
-                self.gm_btn.set_sensitive(True)
-                color = "#9ece6a" if ok else "#f7768e"
-                self.gm_status_lbl.set_markup(f"<span color='{color}'>{GLib.markup_escape_text(msg)}</span>")
+                self.gm_toggle.set_sensitive(True)
+                if hasattr(self, "gm_btn"):
+                    self.gm_btn.set_sensitive(True)
+                self._gm_status(msg, "#9ece6a" if ok else "#f7768e")
                 self.refresh()
 
             GLib.idle_add(update_ui)
