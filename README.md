@@ -81,16 +81,26 @@ Currently a Python + GTK4 + libadwaita prototype with a dark Tokyo Night theme. 
 
 ### Install
 
+**One line — recommended:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LordHayne/GCC/main/bootstrap.sh | bash
+```
+
+That's it. It clones the repo into `~/.local/share/gaming-command-center` and
+runs the installer, which detects your distro, installs the GUI dependencies it
+needs (asking once before it touches anything), sets up the launcher, icon and
+permissions, and verifies the app can actually start before it says "done".
+Then launch **Gaming Command Center** from your app menu.
+
+Piping a script into your shell is worth a glance first — it's short and does
+nothing but clone and call `./install.sh`. Prefer to do it by hand?
+
 ```bash
 git clone https://github.com/LordHayne/GCC.git
 cd GCC
 ./install.sh
 ```
-
-That's it. The installer detects your distro, installs the GUI dependencies it
-needs (asking once before it touches anything), sets up the launcher, icon and
-permissions, and verifies the app can actually start before it says "done".
-Then launch **Gaming Command Center** from your app menu.
 
 ### Supported systems
 

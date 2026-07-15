@@ -96,10 +96,14 @@ else
     fi
 
     echo "     Packages: $PKGS"
+    # Ask on the real terminal even when stdin is a pipe (curl | bash bootstrap);
+    # only a truly headless run (no tty at all) proceeds unattended.
     if [ -t 0 ]; then
         read -r -p "     Install them now? [Y/n] " reply
+    elif [ -e /dev/tty ]; then
+        read -r -p "     Install them now? [Y/n] " reply < /dev/tty
     else
-        reply="y"   # piped/non-interactive run → proceed
+        reply="y"   # no terminal at all → non-interactive, proceed
     fi
     case "$reply" in
         [Nn]*) echo "  ❌ Skipped — the app can't run without these. Aborting."; exit 1 ;;
