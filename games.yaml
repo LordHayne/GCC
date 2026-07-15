@@ -1636,6 +1636,381 @@ games:
           source: "gamingonlinux.com/anticheat/vendor/ricochet-anti-cheat (retrieved 2026-07-15)"
 
 
+  - name: "Diablo IV"
+    steam_id: 2344520
+    aliases: ["diablo 4", "diablo iv", "d4"]
+    issues:
+      - symptom: "Game no longer launches / instant crash at startup after a Blizzard patch; never reaches the Battle.net login"
+        cause: "Blizzard added an internal environment check (a deliberate debugbreak in the loader) that trips under Wine/Proton; Valve ships a Proton-side fix after each such patch."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> enable 'Force the use of a specific Steam Play compatibility tool' and select Proton Hotfix (or Proton Experimental). Make sure Steam and the game are fully updated first."
+          verified: false
+          source: "steamdeckhq.com/news/diablo-iv-season-14-proton-hotfix (retrieved 2026-07-15)"
+
+      - symptom: "Heavy stutter/hitching during the first play session as the game compiles shaders"
+        cause: "Shader pipelines are compiled on first encounter; without a persistent on-disk cache they recompile every session."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "__GL_SHADER_DISK_CACHE=1 __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1 %command%"
+          verified: false
+          source: "protondb.com/app/2344520 (retrieved 2026-07-15)"
+
+      - symptom: "VRAM overflow stutter / texture pop-in on 8GB cards, especially in busy towns"
+        cause: "Diablo IV's higher texture tiers exceed an 8GB VRAM budget under Proton (DXVK adds overhead), forcing constant texture streaming."
+        fix:
+          type: info
+          value: "In-game Graphics settings: set Texture Quality to Medium/High (not Ultra) and cap the frame rate; this keeps VRAM under 8GB and removes the streaming hitches."
+          verified: false
+          source: "protondb.com/app/2344520 (retrieved 2026-07-15)"
+
+
+  - name: "Phasmophobia"
+    steam_id: 739630
+    aliases: ["phasmophobia", "phasmo"]
+    issues:
+      - symptom: "Microphone / voice recognition and lobby voice chat don't work, so the core co-op ghost-hunting loop is unplayable under Proton"
+        cause: "Phasmophobia only initializes its speech-recognition and voice paths when it thinks it is running on Steam Deck; on a normal Linux desktop those code paths stay disabled."
+        fix:
+          type: launch_option
+          value: "SteamDeck=1 %command%"
+          verified: false
+          source: "steamcommunity.com/app/739630/discussions (retrieved 2026-07-15)"
+
+      - symptom: "Frequent micro-freezes / stutter the first time new effects, rooms or ghosts appear (Unity on-the-fly shader compilation hitching)"
+        cause: "Unity compiles DXVK shaders on-demand; on NVIDIA under Proton each new shader stalls the frame until it is built. DXVK_ASYNC is only honored by Proton-GE / async-patched DXVK builds."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "DXVK_ASYNC=1 %command%"
+          verified: false
+          source: "protondb.com/app/739630 (retrieved 2026-07-15)"
+
+
+  - name: "EA SPORTS FC 26"
+    steam_id: 3405690
+    aliases: ["ea fc 26", "fc 26", "fifa 26"]
+    issues:
+      - symptom: "Game does not launch on Linux/Proton; closes to desktop or shows an anti-cheat error at startup"
+        cause: "EA SPORTS FC 26 ships EA Javelin Anticheat, a kernel-mode anti-cheat with no Linux/Proton support. EA has not enabled a Proton allowlist for it, and the launcher requires the anti-cheat even for offline and Career mode, so no game mode is reachable on Linux."
+        fix:
+          type: info
+          value: "Not playable on Linux at this time. EA Javelin kernel anti-cheat blocks all modes, including offline Career, and no Proton/GE version fixes it. Wait for EA to allow Proton support before buying to play on Linux."
+          verified: false
+          source: "gamingonlinux.com/itemdb/app/43028 (retrieved 2026-07-15)"
+
+
+  - name: "NARAKA: BLADEPOINT"
+    steam_id: 1203220
+    aliases: ["naraka", "naraka bladepoint"]
+    issues:
+      - symptom: "Game hangs on the NetEase/anti-cheat splash or crashes at launch on the default (stock) Proton version"
+        cause: "NARAKA uses NEAC Protect, which needs a recent Proton build to initialize correctly; older or mismatched stock Proton can fail the anti-cheat handshake before the game window appears."
+        fix:
+          type: info
+          value: "Set Properties -> Compatibility -> Force Proton Experimental (or install Proton-GE). NEAC Protect is confirmed supported on Linux, so no bypass is needed - just a current Proton runtime."
+          verified: false
+          source: "areweanticheatyet.com/game/naraka-bladepoint (retrieved 2026-07-15)"
+
+      - symptom: "Traversal/shader stutter and frame drops during matches (UE4 hitching)"
+        cause: "Unreal Engine 4 compiles shaders on the fly; without a scheduler/governor boost the CPU can't keep up, producing stutter typical of UE4 titles under Proton."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/1203220 (retrieved 2026-07-15)"
+
+
+  - name: "Wuthering Waves"
+    steam_id: 3513350
+    aliases: ["wuthering waves", "wuwa"]
+    issues:
+      - symptom: "Game fails to launch on Linux / Steam Deck; ACE anti-cheat error, black screen or instant exit"
+        cause: "Wuthering Waves ships Anti-Cheat Expert (ACE), a kernel-level anti-cheat that runs a hardware check and only whitelists official Steam Deck hardware. On generic desktop Linux the check fails and the game refuses to start; spoofing Steam Deck identity satisfies the check."
+        fix:
+          type: launch_option
+          value: "STEAMDECK=1 %command%"
+          verified: false
+          source: "areweanticheatyet.com/game/wuthering-waves (retrieved 2026-07-15)"
+
+      - symptom: "Won't start even with STEAMDECK=1, or you prefer an automatic fix without editing launch options"
+        cause: "Vanilla Proton does not spoof Steam Deck identity by default. GE-Proton 10.8+ bundles a protonfix that sets SteamOS=1 for this AppID automatically, satisfying ACE's hardware check."
+        fix:
+          type: info
+          value: "Install GE-Proton 10.8 or newer (e.g. via ProtonUp-Qt) and select it in the game's Compatibility settings; it applies the Steam Deck spoof automatically, so no launch option is needed."
+          verified: false
+          source: "gamingonlinux.com/2025/04/wuthering-waves-arrives-on-steam-with-anti-cheat-problems-on-linux (retrieved 2026-07-15)"
+
+      - symptom: "Runs but stutters or has inconsistent frametimes on NVIDIA"
+        cause: "Unreal Engine gacha title; shader compilation and CPU governor scheduling cause hitching. GameMode applies a performance CPU profile and reduces this on multi-core NVIDIA desktops."
+        when: { gpu: nvidia }
+        fix:
+          type: launch_option
+          value: "STEAMDECK=1 gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/3513350 (retrieved 2026-07-15)"
+
+
+  - name: "NBA 2K26"
+    steam_id: 3472040
+    aliases: ["nba 2k26", "2k26"]
+    issues:
+      - symptom: "Uncertain whether NBA 2K26 (with Easy Anti-Cheat) launches on Linux, and whether online MyCareer/The City works"
+        cause: "NBA 2K26 ships Easy Anti-Cheat, but 2K enabled EAC's Proton/Wine support, so the anti-cheat authenticates under Proton; the game runs and 2K servers accept the session for online modes."
+        fix:
+          type: info
+          value: "NBA 2K26 is playable on Linux via Proton (ProtonDB Silver, trending Gold). EAC authenticates under Proton, so both offline and online modes (MyCareer / The City) work once you are signed into your 2K account. Not listed as denied on areweanticheatyet."
+          verified: false
+          source: "protondb.com/app/3472040 (retrieved 2026-07-15)"
+
+      - symptom: "Random crashes and first-load freezes in MyCareer/The City, especially on the first launch"
+        cause: "Heavy first-run Vulkan shader/asset streaming plus Proton-version sensitivity; the game is stable once caches are built but can crash on older/mismatched Proton builds."
+        fix:
+          type: info
+          value: "Use Proton Experimental (or Proton 10 beta) rather than an older Proton/GE build. On first launch let the shader processing and asset caching finish - the initial load may freeze once; relaunch and it stabilizes. Keep NVIDIA drivers current."
+          verified: false
+          source: "protondb.com/app/3472040 (retrieved 2026-07-15)"
+
+
+  - name: "The Sims 4"
+    steam_id: 1222670
+    aliases: ["sims 4", "the sims 4"]
+    issues:
+      - symptom: "EA App shows a black/blank screen inside Steam and The Sims 4 never launches under Proton"
+        cause: "The EA App's embedded browser (CEF) fails to render under default Proton's Direct3D path, so the launcher hangs before starting the game."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_WINED3D=1 %command%"
+          verified: false
+          source: "protondb.com/app/1222670 (retrieved 2026-07-15)"
+
+      - symptom: "Game feels choppy / FPS is capped after using the EA App launch workaround"
+        cause: "PROTON_USE_WINED3D forces the slower OpenGL WineD3D renderer instead of DXVK; it is only needed to get the EA App to render, not to play."
+        fix:
+          type: info
+          value: "Once the game launches, remove PROTON_USE_WINED3D=1 so DXVK is used again for smooth performance; a recent Proton (Experimental or latest GE-Proton) often launches the EA App without the workaround at all."
+          verified: false
+          source: "protondb.com/app/1222670 (retrieved 2026-07-15)"
+
+
+  - name: "Hearts of Iron IV"
+    steam_id: 394360
+    aliases: ["hoi4", "hearts of iron 4"]
+    issues:
+      - symptom: "Unsure whether to use the native Linux build or Proton"
+        cause: "Hearts of Iron IV ships a native Linux (OpenGL) build with no anti-cheat, so it starts out of the box. The native build is reliable but historically runs a bit below the Windows/Proton renderer; if native stutters or the Paradox launcher misbehaves, forcing Proton is the standard, better-performing alternative."
+        fix:
+          type: info
+          value: "Native starts as-is (Platinum, no anti-cheat). If native performance/launcher is poor, force a recent Proton (Proton 9+/Experimental) via the game's Compatibility tab."
+          verified: false
+          source: "protondb.com/app/394360 (retrieved 2026-07-15)"
+
+      - symptom: "Severe slowdown in mid/late game (1941+), speed 5 crawls"
+        cause: "Paradox's clock/AI simulation is single-thread CPU-bound; late-game slowdown is engine-wide (all platforms), not a GPU or renderer problem, so no launch option fixes it."
+        fix:
+          type: info
+          value: "Late-game slowdown is CPU/simulation-bound, not fixable via launch options or GPU settings. A high single-thread-clock CPU helps; graphics settings only affect frame rate, not game speed."
+          verified: false
+          source: "forum.paradoxplaza.com/forum/threads/1565508 (retrieved 2026-07-15)"
+
+
+  - name: "BeamNG.drive"
+    steam_id: 284160
+    aliases: ["beamng", "beamng.drive"]
+    issues:
+      - symptom: "Game fails to launch or crashes at startup when forced onto GE-Proton or an older Proton build"
+        cause: "BeamNG's Steamworks SDK version only works with specific Proton builds; the January 2026 update made the native Linux (Vulkan) binary the default, and only Proton 10.0-4 / Proton Experimental are compatible. No anti-cheat is involved."
+        fix:
+          type: info
+          value: "Let Steam use the default native Linux runtime, or if forcing Proton set the compatibility tool to Proton Experimental (or Proton 10.0-4). Avoid GE-Proton / older Proton."
+          verified: false
+          source: "documentation.beamng.com/support/troubleshooting/steamdeck_linux (retrieved 2026-07-15)"
+
+      - symptom: "Game closes/crashes mid-session on systems with 16 GB RAM or less"
+        cause: "BeamNG can consume more than 16 GB of memory; with no headroom the OS OOM-kills the process."
+        fix:
+          type: info
+          value: "Enable zram plus disk swap so the physics engine has memory headroom (CachyOS ships zram by default; confirm it is active)."
+          verified: false
+          source: "documentation.beamng.com/support/troubleshooting/steamdeck_linux (retrieved 2026-07-15)"
+
+      - symptom: "Low/stuttering FPS in this CPU/physics-heavy sim, especially with multiple vehicles"
+        cause: "Soft-body physics is CPU-bound; the Proton path loses performance versus native, and high Physics Detail multiplies CPU load."
+        fix:
+          type: info
+          value: "Run the native Linux (Vulkan) binary rather than Proton, and lower the in-game Physics Detail setting when spawning multiple vehicles. On NVIDIA, ensure the proprietary driver is installed for Vulkan 1.3 support."
+          verified: false
+          source: "dedoimedo.com/games/steam-proton-beamng.html (retrieved 2026-07-15)"
+
+
+  - name: "Garry's Mod"
+    steam_id: 4000
+    aliases: ["gmod", "garrys mod"]
+    issues:
+      - symptom: "Game crashes on launch after 'Initializing Serverside' (or CEF/menu shows black), most often on the 'Chromium + 64-bit Binaries' (x86-64) beta branch"
+        cause: "The x86-64 Chromium build ships without proprietary media codecs and Steam's integrity check strips/reverts the CEF patch, so the native Linux client dies during startup."
+        fix:
+          type: info
+          value: "In Steam -> Properties -> Betas select the 'x86-64' branch, then download and run GModPatchTool (formerly GModCEFCodecFix) once to re-patch CEF; re-run it after any game update. Do NOT put '-nochromium' in launch options."
+          verified: false
+          source: "solsticegamestudios.com/fixmedia/linux (retrieved 2026-07-15)"
+
+      - symptom: "Native Linux client fails to start / instantly crashes with no window on some modern kernels"
+        cause: "GMod's Chromium sandbox needs unprivileged user namespaces; distros that disable them block the CEF child process from spawning."
+        fix:
+          type: info
+          value: "Enable unprivileged user namespaces (e.g. sysctl kernel.unprivileged_userns_clone=1, made persistent via a sysctl.d drop-in). CachyOS enables this by default."
+          verified: false
+          source: "civilnetworks.net/community/threads/fixing-crashes-gmod-chromium.22032 (retrieved 2026-07-15)"
+
+      - symptom: "Low/stuttery FPS in CPU-heavy scenes; long startup with intro logos"
+        cause: "Source defaults to single-threaded material queue; multicore rendering is off by default and startup plays the valve/facepunch videos."
+        fix:
+          type: launch_option
+          value: "%command% -novid +gmod_mcore_test 1 +mat_queue_mode 2"
+          verified: false
+          source: "steamcommunity.com/sharedfiles/filedetails/?id=2033799294 (retrieved 2026-07-15)"
+
+
+  - name: "Don't Starve Together"
+    steam_id: 322330
+    aliases: ["dst", "dont starve together"]
+    issues:
+      - symptom: "Game crashes to a black screen immediately on the native Linux build, sometimes with 'libcurl-gnutls.so.4: cannot open shared object file'"
+        cause: "The native binary is 32-bit and needs the 32-bit libcurl (gnutls) library, which is not always pulled in by default."
+        fix:
+          type: info
+          value: "Install the 32-bit libcurl-gnutls package (Arch/CachyOS: lib32-libcurl-gnutls; Debian/Ubuntu: libcurl3-gnutls:i386). Verify game file integrity and use the native Linux build. No anti-cheat is present."
+          verified: false
+          source: "steamcommunity.com/app/322330/discussions/0/485624149162956663 (retrieved 2026-07-15)"
+
+
+  - name: "Yu-Gi-Oh! Master Duel"
+    steam_id: 1449850
+    aliases: ["master duel", "yugioh master duel"]
+    issues:
+      - symptom: "Game runs out of the box on Linux (no anti-cheat)"
+        cause: "No kernel/EAC/BattlEye anti-cheat - server-side only, so Proton is unaffected; a standard Unity title fully supported by Proton (ProtonDB Platinum)."
+        fix:
+          type: info
+          value: "Just enable Steam Play (Proton Experimental or stable) and launch. No tweaks needed for the vast majority of setups."
+          verified: false
+          source: "protondb.com/app/1449850 (retrieved 2026-07-15)"
+
+      - symptom: "Black screen or stuck at loading on first launch (rare)"
+        cause: "Occasional D3D/DXVK init hiccup on some driver/Proton combos; forcing the WineD3D renderer sidesteps it (remove it once past the first launch)."
+        fix:
+          type: launch_option
+          value: "PROTON_USE_WINED3D=1 %command%"
+          verified: false
+          source: "steamcommunity.com/app/1449850/discussions (retrieved 2026-07-15)"
+
+
+  - name: "The Binding of Isaac: Rebirth"
+    steam_id: 250900
+    aliases: ["binding of isaac", "isaac"]
+    issues:
+      - symptom: "Game launches into an older version, or the Repentance DLC content is missing / won't start on the native Linux build"
+        cause: "Base Rebirth/Afterbirth ships a native Linux build that plays fine, but Nicalis dropped Linux support for the Repentance DLC (no native build). Steam still defaults owners to the outdated native binary."
+        fix:
+          type: info
+          value: "If you only own base Rebirth/Afterbirth, the native build just works. If you own Repentance, force Proton: Properties -> Compatibility -> 'Force the use of a specific Steam Play compatibility tool' -> Proton (Experimental or recent stable). Proton runs the full Windows version including Repentance; no anti-cheat is present."
+          verified: false
+          source: "protondb.com/app/250900 (retrieved 2026-07-15)"
+
+
+  - name: "Geometry Dash"
+    steam_id: 322170
+    aliases: ["geometry dash", "gd"]
+    issues:
+      - symptom: "Game freezes on launch or during play on a Wayland session"
+        cause: "Under some Wayland setups the game window can hang; forcing an X11/XWayland session avoids it. Otherwise the game is ProtonDB Platinum and runs out of the box with no launch options."
+        when: { session: wayland }
+        fix:
+          type: info
+          value: "If it freezes on Wayland, log into an X11/Xorg session and start the game again."
+          verified: false
+          source: "protondb.com/app/322170 (retrieved 2026-07-15)"
+
+
+  - name: "Slay the Spire 2"
+    steam_id: 2868840
+    aliases: ["slay the spire 2", "sts2"]
+    issues:
+      - symptom: "Black screen (or crash to no display) at launch on Linux; a black window opens with audio only"
+        cause: "Slay the Spire 2 is a Godot engine game that defaults to the Vulkan rendering driver on Linux; on some setups (and under Proton) Vulkan init fails, giving a black screen. Forcing the OpenGL3 driver avoids it. No anti-cheat is present."
+        fix:
+          type: launch_option
+          value: "%command% --rendering-driver opengl3"
+          verified: false
+          source: "steamcommunity.com/app/2868840/discussions/0/802341195824169699 (retrieved 2026-07-15)"
+
+      - symptom: "Native Linux build crashes or is unstable in Early Access; want the most reliable path"
+        cause: "The native Linux build exists but is rougher in Early Access than the Windows build under Proton. Community consensus is that Proton Experimental gives the smoothest experience; once running, performance is good (ProtonDB Platinum)."
+        fix:
+          type: info
+          value: "Set compatibility to Proton Experimental (Properties -> Compatibility). Combine with the opengl3 launch option above if you still get a black screen. If native runs fine for you, leave it native - no perf flags needed."
+          verified: false
+          source: "protondb.com/app/2868840 (retrieved 2026-07-15)"
+
+
+  - name: "R.E.P.O."
+    steam_id: 3241660
+    aliases: ["repo", "r.e.p.o."]
+    issues:
+      - symptom: "Game and its online co-op just work on Proton with no configuration"
+        cause: "R.E.P.O. ships no kernel/EAC anti-cheat and uses Steam's networking, so both singleplayer and the co-op lobbies run out of the box under Proton (ProtonDB Platinum, 369 reports)."
+        fix:
+          type: info
+          value: "No launch option or tweak required. Install and launch; hosting and joining co-op with friends works normally on Linux/Proton."
+          verified: false
+          source: "protondb.com/app/3241660 (retrieved 2026-07-15)"
+
+      - symptom: "Occasional Unity frame-time hitching / shader-compile stutter during play"
+        cause: "Unity DX11 titles compile shaders on the fly under DXVK and lose frame pacing to background CPU load; a game-mode wrapper stabilizes scheduling."
+        fix:
+          type: launch_option
+          value: "gamemoderun %command%"
+          verified: false
+          source: "protondb.com/app/3241660 (retrieved 2026-07-15)"
+
+
+  - name: "Limbus Company"
+    steam_id: 1973530
+    aliases: ["limbus company", "limbus"]
+    issues:
+      - symptom: "Game boots to a black/blue screen at the main menu; menu banners and intro/credits videos fail to render on stock Proton"
+        cause: "Stock Proton lacks the media codecs Limbus Company's Unity build uses for its title-screen and menu videos, leaving the main menu black on first launch."
+        fix:
+          type: info
+          value: "Properties -> Compatibility -> force the latest GE-Proton instead of stock Proton. GE-Proton ships the codecs, so the menu, banners and videos render and the game starts normally. No anti-cheat, so this is safe."
+          verified: false
+          source: "protondb.com/app/1973530 (retrieved 2026-07-15)"
+
+
+  - name: "Crimson Desert"
+    steam_id: 3321460
+    aliases: ["crimson desert"]
+    issues:
+      - symptom: "Game hangs on the loading screen (audio continues, video freezes) even though it launches and reaches menus"
+        cause: "Regression with recent NVIDIA beta drivers (reported on the 595 beta line); dmesg shows a GPU context-switch timeout. Driver-side, not Proton."
+        when: { gpu: nvidia }
+        fix:
+          type: info
+          value: "Use the current stable NVIDIA driver (reporters fell back from the 595 beta to the 590 stable branch to get past the loading screen). No launch flag or Proton version fixes this. If you run ray tracing, try disabling RT in-game, which cleared the same freeze for some users and roughly restored FPS."
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/9595 (retrieved 2026-07-15)"
+
+      - symptom: "Loading-screen / early-startup freeze persists on Proton and you want a low-risk env workaround before touching drivers"
+        cause: "A DXVK HDR code path has been implicated by some Linux testers in the startup hang; disabling it removes that variable (effect is inconsistent between reporters)."
+        fix:
+          type: launch_option
+          value: "DXVK_HDR=0 %command%"
+          verified: false
+          source: "github.com/ValveSoftware/Proton/issues/9595 (retrieved 2026-07-15)"
+
+
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
 # =====================================================================
