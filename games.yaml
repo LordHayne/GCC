@@ -44,12 +44,36 @@
 #   when: { gpu: nvidia, session: wayland }
 # Keys: gpu (nvidia|amd|intel), session (wayland|x11). Omit `when` for
 # issues that apply to everyone.
+#
+# PLAYABILITY — the library traffic light (optional)
+# --------------------------------------------------
+# A per-game verdict, shown as ✅/⚠️/⛔ on the Games page so a Windows switcher
+# sees at a glance what works before wasting an evening on it. Set at the game
+# level (next to `name:`), NOT inside an issue:
+#   playability: broken           # playable | fixable | broken
+#   playability_reason: "One honest line: why it won't run (anti-cheat, etc.)"
+#   playability_source: "areweanticheatyet.com/game/…"   # so the verdict is auditable
+# Use `broken` ONLY for games that genuinely cannot run on Linux (almost always
+# anti-cheat the publisher disabled server-side) — no launch option or file can
+# fix it. This is the expectation-manager, so keep it accurate and sourced.
+# Omit the field entirely for normal games; the app then falls back to ProtonDB.
+#
+# NON-STEAM TITLES (optional)
+# ---------------------------
+# For famous games that aren't on Steam (Valorant, League, Fortnite), drop
+# `steam_id:` and set `platform:` instead — one of:
+#   riot | epic | battlenet | ea | rockstar | other
+# The app can't scan or install these, so it ALWAYS lists them (they only make
+# sense with playability: broken — a "you can't bring this to Linux" warning).
 # =====================================================================
 
 games:
   - name: "Overwatch 2"
     steam_id: 2357570
     aliases: ["overwatch", "ow2"]
+    playability: playable
+    playability_reason: "Blizzard Defense Matrix has no kernel driver and Blizzard says Linux play is not bannable (areweanticheatyet: Supported)."
+    playability_source: "areweanticheatyet.com/game/overwatch-2"
     issues:
       - symptom: "Stuttering / frame hitches during gameplay"
         cause: "NVIDIA host-visible VRAM (HVV) upload stutter in vkd3d-proton.
@@ -84,6 +108,9 @@ games:
   - name: "Cyberpunk 2077"
     steam_id: 1091500
     aliases: ["cyberpunk"]
+    playability: playable
+    playability_reason: "No anti-cheat; ProtonDB Gold/Platinum via Proton."
+    playability_source: "protondb.com/app/1091500"
     issues:
       - symptom: "REDlauncher hangs or a long black screen appears before the main menu"
         cause: "The intermediate REDlauncher/start splash behaves poorly under Proton; skipping it launches the game engine directly (gamemoderun also applies Feral GameMode)."
@@ -123,6 +150,9 @@ games:
   - name: "Elden Ring"
     steam_id: 1245620
     aliases: ["elden ring", "er"]
+    playability: playable
+    playability_reason: "FromSoftware enabled Easy Anti-Cheat for Proton, so online works too."
+    playability_source: "areweanticheatyet.com/game/elden-ring"
     issues:
       - symptom: "Game crashes or freezes shortly after launch"
         cause: "Default Proton version can hit a VKD3D shader-cache race;
@@ -180,6 +210,9 @@ games:
   - name: "Baldur's Gate 3"
     steam_id: 1086940
     aliases: ["bg3", "baldurs gate 3"]
+    playability: playable
+    playability_reason: "Native Linux/Vulkan build, ProtonDB Platinum, no anti-cheat."
+    playability_source: "protondb.com/app/1086940"
     issues:
       - symptom: "Act 2 fails to load or game crashes in Act 2 when using the Windows version via Proton"
         cause: "The Proton (Windows) version has a loading bug in Act 2;
@@ -305,6 +338,9 @@ games:
   - name: "Counter-Strike 2"
     steam_id: 730
     aliases: ["cs2", "counter-strike"]
+    playability: playable
+    playability_reason: "Native Linux build; VAC works on Linux with no anti-cheat block."
+    playability_source: "protondb.com/app/730"
     issues:
       - symptom: "No audio, or crackling/stuttering audio in the native Linux build"
         cause: "CS2's SDL3 audio backend picks a poor default output on Linux; forcing the PipeWire driver restores clean audio. (-vulkan is not needed on Linux - Vulkan is already the default renderer.)"
@@ -372,6 +408,9 @@ games:
   - name: "Dota 2"
     steam_id: 570
     aliases: ["dota"]
+    playability: playable
+    playability_reason: "Native Linux client, VAC-supported, runs great."
+    playability_source: "protondb.com/app/570"
     issues:
       - symptom: "No audio, or crackling / stuttering sound in the native Linux client"
         cause: "SDL2 defaults to its PulseAudio backend, which misbehaves on modern PipeWire setups; forcing SDL's native PipeWire driver fixes dropouts and crackle."
@@ -409,6 +448,9 @@ games:
   - name: "Apex Legends"
     steam_id: 1172470
     aliases: ["apex", "apex legends"]
+    playability: broken
+    playability_reason: "EA disabled Linux/Steam Deck anti-cheat on 2024-10-31 - launching online can get the account banned. No Proton flag restores access."
+    playability_source: "areweanticheatyet.com/game/apex-legends"
     issues:
       - symptom: "Game won't launch, kicks to menu, or bans - blocked by anti-cheat on Linux"
         cause: "EA disabled Easy Anti-Cheat + Hyperion support for Linux/Proton on 2024-10-31 - a deliberate publisher block, not a technical failure."
@@ -421,6 +463,9 @@ games:
   - name: "PUBG: Battlegrounds"
     steam_id: 578080
     aliases: ["pubg"]
+    playability: broken
+    playability_reason: "BattlEye supports Proton, but Krafton has never enabled it for PUBG - the game closes at the anti-cheat handshake. Nothing on the user side bypasses it."
+    playability_source: "areweanticheatyet.com/game/pubg-battlegrounds"
     issues:
       - symptom: "PUBG: BATTLEGROUNDS refuses to launch on Linux/Proton - it starts, then closes immediately or shows a BattlEye/anti-cheat error before reaching the menu"
         cause: "PUBG uses BattlEye anti-cheat. BattlEye has technically supported Proton/Linux since 2021, but it is opt-in per game and PUBG's developer (Krafton) has never enabled Proton support. Without the developer flipping that switch, BattlEye blocks the game on Linux. This is a developer-policy block, not a fixable client-side problem."
@@ -573,6 +618,9 @@ games:
   - name: "The Witcher 3: Wild Hunt"
     steam_id: 292030
     aliases: ["witcher 3", "tw3"]
+    playability: playable
+    playability_reason: "No anti-cheat; ProtonDB Platinum via Proton."
+    playability_source: "protondb.com/app/292030"
     issues:
       - symptom: "The CD Projekt RED launcher opens on every start and under Proton can hang, show a black/empty window, or fail to hand off to the game"
         cause: "The next-gen update added a flaky secondary Qt launcher. --launcher-skip boots the game directly. NOTE: --launcher-skip always starts the DX12 renderer, ignoring any DX11 choice saved in the launcher."
@@ -949,6 +997,9 @@ games:
   - name: "Rust"
     steam_id: 252490
     aliases: ["rust"]
+    playability: broken
+    playability_reason: "EAC is Windows-only for Rust and Facepunch confirmed no Proton plans - you get kicked from every server. The game launches but its (multiplayer-only) content is unplayable."
+    playability_source: "areweanticheatyet.com/game/rust"
     issues:
       - symptom: "Rust launches under Proton but you get kicked / 'EAC: Disconnected' and can't join servers"
         cause: "Facepunch has NOT enabled the EAC Proton/Linux runtime and has publicly stated it has no plans to. Official and nearly all community servers require EAC, so they reject Linux clients. The game boots, but multiplayer is blocked."
@@ -1024,6 +1075,9 @@ games:
   - name: "Warframe"
     steam_id: 230410
     aliases: ["warframe"]
+    playability: playable
+    playability_reason: "ProtonDB Gold; anti-cheat works and it runs well."
+    playability_source: "protondb.com/app/230410"
     issues:
       - symptom: "Launcher opens but never gets past 'Checking for updates'; the Play button stays disabled"
         cause: "The 32-bit Warframe launcher/bootstrapper has trouble rendering and updating under older or stock Proton. Proton-GE carries Warframe-specific patches, and recent Proton (9/10) fixed launcher window rendering."
@@ -1326,6 +1380,9 @@ games:
   - name: "Tom Clancy's Rainbow Six Siege"
     steam_id: 359550
     aliases: ["r6", "rainbow six siege", "siege"]
+    playability: broken
+    playability_reason: "BattlEye supports Proton, but Ubisoft has not enabled the Linux flag - clients are kicked at the anti-cheat handshake. No client-side workaround."
+    playability_source: "areweanticheatyet.com/game/tom-clancys-rainbow-six-siege"
     issues:
       - symptom: "Rainbow Six Siege (Siege X) launches under Proton but kicks you back to the menu / bans on connect, so online multiplayer - the entire game - is unplayable on Linux"
         cause: "The game uses BattlEye anti-cheat. BattlEye has full Proton support, but Ubisoft has not enabled the Proton/Linux flag on their backend, so Linux clients are rejected at the anti-cheat handshake. This is a server-side vendor decision - no launch option, Proton version, or config can bypass it."
@@ -1368,6 +1425,9 @@ games:
   - name: "Delta Force"
     steam_id: 2507950
     aliases: ["delta force"]
+    playability: broken
+    playability_reason: "ACE kernel anti-cheat whitelists only native Steam Deck hardware - all other desktop Linux is blocked, and the developer has not enabled Proton support."
+    playability_source: "areweanticheatyet.com/game/delta-force-hawk-ops"
     issues:
       - symptom: "Delta Force does not launch on desktop Linux - the game exits immediately or shows an anti-cheat error at startup"
         cause: "Delta Force uses Anti-Cheat Expert (ACE), a kernel-level anti-cheat whose Linux/Proton support is Denied by the developer. ACE only whitelists native Steam Deck CPUs; all other desktop Linux systems are blocked, so the game cannot run regardless of Proton version."
@@ -1381,6 +1441,9 @@ games:
   - name: "Marvel Rivals"
     steam_id: 2767030
     aliases: ["marvel rivals", "rivals"]
+    playability: fixable
+    playability_reason: "NetEase NEAC runs in user space and tolerates Proton, but it is volatile across patches and often needs SteamDeck=1 %command%."
+    playability_source: "areweanticheatyet.com/game/marvel-rivals"
     issues:
       - symptom: "Game bounces back to desktop / refuses to launch on Linux (fails NetEase launcher/anti-cheat platform check)"
         cause: "Marvel Rivals' NetEase launcher gates startup on the Steam Deck runtime flag; without it, Proton launches can fail on regular desktop Linux."
@@ -1475,6 +1538,9 @@ games:
   - name: "Battlefield 6"
     steam_id: 2807960
     aliases: ["bf6", "battlefield 6"]
+    playability: broken
+    playability_reason: "EA Javelin kernel anti-cheat is Secure-Boot-gated and EA has explicitly denied Linux/Proton/Steam Deck support. No launch option runs it."
+    playability_source: "areweanticheatyet.com/game/battlefield-6"
     issues:
       - symptom: "Battlefield 6 does not launch on Linux/Proton at all"
         cause: "EA Javelin kernel-level anti-cheat requires Secure Boot and blocks Proton/Wine; the developer has not enabled Linux support, so the game is denied on any Linux system including Steam Deck."
@@ -1597,6 +1663,9 @@ games:
   - name: "Rocket League"
     steam_id: 252950
     aliases: ["rocket league", "rl"]
+    playability: playable
+    playability_reason: "EAC is enabled for Proton - pick the 'with Anti-Cheat' launch option to play online."
+    playability_source: "areweanticheatyet.com/game/rocket-league"
     issues:
       - symptom: "Game won't launch on Linux (exits immediately or shows no compatible build)"
         cause: "Psyonix removed the native Linux build in March 2020 when the game moved to Epic; only the Windows build ships now, so Steam must be told to run it through Proton."
@@ -1626,6 +1695,9 @@ games:
   - name: "Call of Duty"
     steam_id: 1938090
     aliases: ["cod", "call of duty", "warzone"]
+    playability: broken
+    playability_reason: "RICOCHET kernel anti-cheat blocks Proton entirely and detects Wine - there is no fix, and attempting to bypass it risks a permanent ban."
+    playability_source: "areweanticheatyet.com/game/call-of-duty"
     issues:
       - symptom: "Game exits immediately on launch under Proton with an anti-cheat error; never reaches the menu"
         cause: "Call of Duty (unified app) ships Activision's RICOCHET kernel-level anti-cheat, a Windows-kernel-only driver that Proton/Wine cannot run. It actively detects Wine/Proton and blocks the game."
@@ -1691,6 +1763,9 @@ games:
   - name: "EA SPORTS FC 26"
     steam_id: 3405690
     aliases: ["ea fc 26", "fc 26", "fifa 26"]
+    playability: broken
+    playability_reason: "EA Javelin kernel anti-cheat blocks every mode, including offline Career - no Proton/GE version runs it. Wait for EA to allow Proton."
+    playability_source: "areweanticheatyet.com/game/ea-sports-fc-26"
     issues:
       - symptom: "Game does not launch on Linux/Proton; closes to desktop or shows an anti-cheat error at startup"
         cause: "EA SPORTS FC 26 ships EA Javelin Anticheat, a kernel-mode anti-cheat with no Linux/Proton support. EA has not enabled a Proton allowlist for it, and the launcher requires the anti-cheat even for offline and Career mode, so no game mode is reachable on Linux."
@@ -2014,6 +2089,9 @@ games:
   - name: "THE FINALS"
     steam_id: 2073850
     aliases: ["the finals", "finals"]
+    playability: playable
+    playability_reason: "Embark enabled EAC and Denuvo Anti-Cheat for Linux - areweanticheatyet lists it Supported."
+    playability_source: "areweanticheatyet.com/game/the-finals"
     issues:
       - symptom: "Game fails to launch / EAC error - anti-cheat does not initialize under Proton"
         cause: "The Finals uses Easy Anti-Cheat; it needs the Proton EAC runtime and the Linux EAC path enabled. Without it the game closes immediately at the splash/EAC handshake."
@@ -2466,6 +2544,9 @@ games:
   - name: "Destiny 2"
     steam_id: 1085660
     aliases: ["destiny 2", "d2"]
+    playability: broken
+    playability_reason: "Bungie bans accounts that launch Destiny 2 through Proton/Steam Deck - officially unsupported and denied. There is no safe method; play on Windows only."
+    playability_source: "areweanticheatyet.com/game/destiny-2"
     issues:
       - symptom: "Destiny 2 does not launch on Linux/Proton and running it risks a permanent account ban"
         cause: "Destiny 2 uses BattlEye anti-cheat, and Bungie has explicitly disabled Linux/Proton support. Bungie treats playing via Proton/Steam Deck as bannable circumvention, and accounts have been banned for it."
@@ -2566,6 +2647,9 @@ games:
   - name: "Halo Infinite"
     steam_id: 1240440
     aliases: ["halo infinite", "halo"]
+    playability: playable
+    playability_reason: "Easy Anti-Cheat works via Proton with no workaround needed since late 2022 (areweanticheatyet: Supported)."
+    playability_source: "areweanticheatyet.com/game/halo-infinite"
     issues:
       - symptom: "Multiplayer or campaign won't launch, or you installed via the Xbox / Microsoft Store app"
         cause: "Only the Steam release runs under Proton; the Xbox App / Microsoft Store build does not. The Steam version's Easy Anti-Cheat has Linux (Proton) support enabled by the developer, so both campaign and multiplayer work."
@@ -2595,6 +2679,9 @@ games:
   - name: "Battlefield 2042"
     steam_id: 1517290
     aliases: ["bf2042", "battlefield 2042"]
+    playability: broken
+    playability_reason: "EA AntiCheat is Denied on Linux and the game is Borked on ProtonDB - no launch option or workaround. EA calls Javelin Linux support only a future goal."
+    playability_source: "areweanticheatyet.com/game/battlefield-2042"
     issues:
       - symptom: "Game launches but immediately closes / kicks to a launcher error, or online multiplayer cannot connect on Linux/Proton"
         cause: "Battlefield 2042 uses EA's kernel-level anti-cheat (EA AntiCheat / Javelin), which does not support Linux or Proton. The developer has explicitly denied Linux/Steam Deck support, so the game is unplayable online on this platform."
@@ -2608,6 +2695,9 @@ games:
   - name: "Fall Guys"
     steam_id: 1097150
     aliases: ["fall guys"]
+    playability: broken
+    playability_reason: "Online play is blocked by Easy Anti-Cheat, which the developer has not kept enabled for Proton - a Feb 2025 update removed the Linux runtime again. Effectively denied."
+    playability_source: "areweanticheatyet.com/game/fall-guys"
     issues:
       - symptom: "Fall Guys reaches the menu but fails to enter matches on Linux, showing 'Anti-cheat is not initialized' (EAC not initialized)"
         cause: "Fall Guys uses Easy Anti-Cheat. After going F2P/Epic the EAC Linux runtime is not reliably shipped/enabled by the developer, so Proton cannot initialize it. A Feb 2025 update removed the easyanticheat.so runtime again, breaking online play. This is a publisher-side switch."
@@ -3081,12 +3171,45 @@ games:
           source: "protondb.com/app/39210 (retrieved 2026-07-15)"
 
 
+  # ===================================================================
+  # Non-Steam titles (no steam_id) — famous games a Windows switcher asks
+  # about first. They can't be scanned/installed through us, but we still
+  # list them so the traffic light can say "this won't run on Linux" up
+  # front. Set `platform:` (not `steam_id:`); these are all anti-cheat
+  # blocks with no client-side workaround.
+  # ===================================================================
+  - name: "Valorant"
+    platform: riot
+    aliases: ["valorant"]
+    playability: broken
+    playability_reason: "Riot's Vanguard kernel anti-cheat requires Windows and does not run under Proton - Riot has explicitly ruled out Linux support. No workaround exists."
+    playability_source: "areweanticheatyet.com/game/valorant"
+
+  - name: "League of Legends"
+    platform: riot
+    aliases: ["lol", "league of legends", "league"]
+    playability: broken
+    playability_reason: "Riot added Vanguard kernel anti-cheat to LoL in 2024; it requires Windows and blocks Proton entirely. The old Wine/Lutris setups no longer work."
+    playability_source: "areweanticheatyet.com/game/league-of-legends"
+
+  - name: "Fortnite"
+    platform: epic
+    aliases: ["fortnite"]
+    playability: broken
+    playability_reason: "Epic's Easy Anti-Cheat supports Proton technically, but Epic has deliberately chosen NOT to enable it for Linux/Steam Deck. Tim Sweeney cited cheating concerns; no client-side fix."
+    playability_source: "areweanticheatyet.com/game/fortnite"
+
+
 # =====================================================================
 # Template — copy this, fill it in, delete the comment lines you don't need
 # =====================================================================
 # - name: "Game Name"
-#   steam_id: 000000
+#   steam_id: 000000                # OR drop it and set `platform:` (non-Steam)
+#   # platform: riot                # riot|epic|battlenet|ea|rockstar|other
 #   aliases: ["short name"]          # optional, for non-Steam launchers
+#   playability: broken             # optional: playable | fixable | broken
+#   playability_reason: "Why it won't run (only needed for broken/fixable)"
+#   playability_source: "areweanticheatyet.com/game/…"   # optional, recommended
 #   issues:
 #     - symptom: "What the player sees going wrong"
 #       cause: "Why it happens (one or two lines)"

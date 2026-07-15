@@ -53,6 +53,19 @@ ALLOWED_GPU = {"nvidia", "amd", "intel"}
 ALLOWED_CPU = {"amd", "intel"}
 ALLOWED_SESSION = {"wayland", "x11"}
 
+# Curated "can I even play this?" verdict, surfaced as the library traffic light.
+# `broken` is the expectation-manager: a game that will NOT run on Linux at all
+# (almost always anti-cheat disabled server-side) — no launch option or file can
+# fix it, so we say so up front instead of after two hours of fiddling. Any other
+# value is dropped, exactly like the fix-type whitelist.
+ALLOWED_PLAYABILITY = {"playable", "fixable", "broken"}
+
+# Storefronts a game can come from. "steam" is the default and the only one we
+# scan/auto-detect; the rest are non-Steam titles that can't carry a steam_id
+# (Valorant, League, Fortnite, …). We still list them so the traffic light can
+# warn "this famous game won't run on Linux" even though it's not on Steam.
+ALLOWED_PLATFORMS = {"steam", "riot", "epic", "battlenet", "ea", "rockstar", "other"}
+
 
 class Fix:
     def __init__(self, ftype, value="", path="", content="", action="", verified=False,
@@ -96,11 +109,23 @@ class Issue:
 
 
 class Game:
-    def __init__(self, name, steam_id, issues, aliases=None):
+    def __init__(self, name, steam_id, issues, aliases=None,
+                 playability=None, playability_reason="", playability_source="",
+                 platform="steam"):
         self.name = name
-        self.steam_id = steam_id
+        self.steam_id = steam_id            # int for Steam games, None otherwise
+        self.platform = platform            # "steam" (scanned) or a non-Steam store
         self.issues = issues
         self.aliases = aliases or []
+        # None | "playable" | "fixable" | "broken" — the library traffic light.
+        # None means "no curated verdict", so the UI falls back to ProtonDB.
+        self.playability = playability
+        self.playability_reason = playability_reason    # why, in one line (esp. broken)
+        self.playability_source = playability_source    # where the verdict came from
+
+    @property
+    def is_steam(self):
+        return self.platform == "steam"
 
 
 def _clean_str(v):
@@ -274,14 +299,36 @@ def load_games(path=None):
     for raw in data["games"]:
         if not isinstance(raw, dict):
             continue
-        try:
-            steam_id = int(raw.get("steam_id"))
-        except (TypeError, ValueError):
+        platform = str(raw.get("platform", "steam")).lower().strip() or "steam"
+        if platform not in ALLOWED_PLATFORMS:
             continue
+
+        if platform == "steam":
+            # Steam games are keyed (and matched at runtime) by their appid.
+            try:
+                steam_id = int(raw.get("steam_id"))
+            except (TypeError, ValueError):
+                continue
+            key = steam_id
+        else:
+            # Non-Steam titles carry no appid — key them by "platform:name" so
+            # they still have a stable identity in the database.
+            steam_id = None
+            nm = str(raw.get("name", "")).strip()
+            if not nm:
+                continue
+            key = f"{platform}:{nm.lower()}"
+
         name = str(raw.get("name", "")).strip() or f"App {steam_id}"
         issues = [i for i in (_parse_issue(r) for r in raw.get("issues", []) or []) if i]
         aliases = [str(a).lower() for a in raw.get("aliases", []) or []]
-        games[steam_id] = Game(name, steam_id, issues, aliases)
+        play = str(raw.get("playability", "")).lower().strip()
+        play = play if play in ALLOWED_PLAYABILITY else None
+        preason = _clean_str(raw.get("playability_reason", ""))
+        psource = _clean_str(raw.get("playability_source", ""))
+        games[key] = Game(name, steam_id, issues, aliases,
+                          playability=play, playability_reason=preason,
+                          playability_source=psource, platform=platform)
 
     return games, ""
 

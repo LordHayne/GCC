@@ -820,6 +820,14 @@ class GamesPage(Gtk.Box):
         self.append(header)
         self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
+        # Ready-to-Play banner: the whole library at a glance, as a traffic light.
+        # Each segment is a filter — the red one is the point of the feature, so a
+        # switcher learns "these won't run" before wasting an evening on them.
+        self._play_filter = None          # None | "play" | "fix" | "broken"
+        self._play_state = {}             # appid -> state, refined live by ProtonDB
+        self.ready_banner = self._build_ready_banner()
+        self.append(self.ready_banner)
+
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
         self.list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -834,6 +842,80 @@ class GamesPage(Gtk.Box):
         self.game_cards = []   # (search_key, card, reveal_fn) for the search filter
         self.rescan()
         self._check_db_update()
+
+    # ---------- Ready-to-Play traffic light ----------
+    # Buckets, in display order. Each: key, emoji, short caption, css accent.
+    PLAY_SEGMENTS = [
+        ("play",    "✅", "run fine",  "seg-play"),
+        ("fix",     "⚠️", "need a fix", "seg-fix"),
+        ("broken",  "⛔", "won't run",  "seg-broken"),
+    ]
+
+    def _build_ready_banner(self):
+        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        wrap.set_margin_start(16); wrap.set_margin_end(16)
+        wrap.set_margin_top(12); wrap.set_margin_bottom(2)
+        self._seg_widgets = {}     # key -> (button, count_label, caption_label)
+
+        for key, emoji, caption, accent in self.PLAY_SEGMENTS:
+            btn = Gtk.Button(); btn.add_css_class("play-seg"); btn.add_css_class(accent)
+            btn.set_hexpand(True)
+            inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            inner.set_halign(Gtk.Align.CENTER)
+            num = Gtk.Label(label="0"); num.add_css_class("seg-count")
+            cap = Gtk.Label(label=f"{emoji}  {caption}"); cap.add_css_class("seg-cap")
+            inner.append(num); inner.append(cap)
+            btn.set_child(inner)
+            btn.connect("clicked", self._on_segment_clicked, key)
+            self._seg_widgets[key] = (btn, num, cap)
+            wrap.append(btn)
+
+        self._all_btn = Gtk.Button(label="All"); self._all_btn.add_css_class("play-seg")
+        self._all_btn.add_css_class("seg-all")
+        self._all_btn.connect("clicked", self._on_segment_clicked, None)
+        wrap.append(self._all_btn)
+        return wrap
+
+    def _on_segment_clicked(self, _btn, key):
+        # A second click on the active segment clears the filter (toggle).
+        self._play_filter = None if self._play_filter == key else key
+        self._sync_segment_active()
+        self._apply_search()
+
+    def _sync_segment_active(self):
+        for key, (btn, _n, _c) in self._seg_widgets.items():
+            btn.set_css_classes([c for c in btn.get_css_classes() if c != "seg-active"])
+            if self._play_filter == key:
+                btn.add_css_class("seg-active")
+        self._all_btn.set_css_classes(
+            [c for c in self._all_btn.get_css_classes() if c != "seg-active"])
+        if self._play_filter is None:
+            self._all_btn.add_css_class("seg-active")
+
+    def _update_ready_banner(self):
+        """Recount the traffic light from the live per-game state and refresh the
+        segment labels. Called after a rescan and again as ProtonDB tiers land."""
+        counts = {"play": 0, "fix": 0, "broken": 0, "unknown": 0}
+        for st in self._play_state.values():
+            counts[st] = counts.get(st, 0) + 1
+        for key, (_btn, num, _cap) in self._seg_widgets.items():
+            num.set_label(str(counts.get(key, 0)))
+        self._sync_segment_active()
+
+    def _classify(self, game, issues):
+        """Immediate library state for one game. A curated `broken` verdict is
+        final; a shown fix makes it 'fix'; otherwise we lean on the curated
+        `playable`/`fixable` verdict, and fall back to 'unknown' until ProtonDB
+        refines it in _load_tier_async."""
+        if game and game.playability == "broken":
+            return "broken"
+        if issues:
+            return "fix"
+        if game and game.playability == "fixable":
+            return "fix"
+        if game and game.playability == "playable":
+            return "play"
+        return "unknown"
 
     def _check_db_update(self):
         """Refresh the fix database AND the community report tally from GitHub in
@@ -903,13 +985,16 @@ class GamesPage(Gtk.Box):
         # local cache and reused for every card; the network refresh happens in
         # the background (_check_db_update).
         self._report_data = report_stats.load()
+        self._play_state = {}
         if self.db_err:
+            self.ready_banner.set_visible(False)
             self.subtitle.set_text(self.db_err)
             self._empty(f"Cannot load fix database: {self.db_err}")
             return
 
         root = steam_scanner.find_steam_root()
         if not root:
+            self.ready_banner.set_visible(False)
             self.subtitle.set_text("Steam not found")
             self._empty("No Steam installation found. Only Steam games are "
                         "supported for now.")
@@ -937,23 +1022,49 @@ class GamesPage(Gtk.Box):
             # can say so honestly instead of a misleading "no known issues".
             hidden = len(matching) - len(issues)
             aliases = game.aliases if game else []
-            rows.append((appid, disp_name, issues, game is not None, hidden, aliases))
+            state = self._classify(game, issues)
+            self._play_state[appid] = state
+            rows.append((appid, disp_name, issues, game, hidden, aliases, state))
 
-        # Games with fixes first, then alphabetical.
-        rows.sort(key=lambda r: (not r[2], r[1].lower()))
-
+        steam_count = len(rows)
         with_fixes = sum(1 for r in rows if r[2])
-        self.subtitle.set_text(
-            f"{len(rows)} installed games · {with_fixes} with known fixes · "
-            f"{len(self.db)} games in database")
+
+        # Non-Steam blockers (Valorant, League, Fortnite): we can't scan or
+        # install them, so we always surface them — the whole value is warning
+        # a switcher BEFORE they discover their main game won't come across.
+        non_steam = 0
+        for key, game in self.db.items():
+            if game.is_steam:
+                continue
+            state = self._classify(game, [])
+            self._play_state[key] = state
+            rows.append((key, game.name, [], game, 0, game.aliases, state))
+            non_steam += 1
+
+        # Broken (won't-run) first so the expectation-setter is impossible to
+        # miss, then games with fixes, then alphabetical.
+        state_rank = {"broken": 0, "fix": 1, "play": 2, "unknown": 3}
+        rows.sort(key=lambda r: (state_rank.get(r[6], 3), not r[2], r[1].lower()))
+
+        subtitle = (f"{steam_count} installed games · {with_fixes} with known fixes · "
+                    f"{len(self.db)} games in database")
+        if non_steam:
+            subtitle += f" · {non_steam} non-Steam blockers listed"
+        self.subtitle.set_text(subtitle)
 
         if not rows:
+            self.ready_banner.set_visible(False)
             self._empty("No installed Steam games found. Install a game, then "
                         "rescan.")
             return
 
-        for appid, name, issues, in_db, hidden, aliases in rows:
-            card, reveal = self._build_game_card(appid, name, issues, in_db, hidden)
+        self.ready_banner.set_visible(True)
+        for appid, name, issues, game, hidden, aliases, state in rows:
+            if game is not None and not game.is_steam:
+                card, reveal = self._build_non_steam_card(game, appid)
+            else:
+                card, reveal = self._build_game_card(appid, name, issues, game, hidden, state)
+            card._appid = appid
             self.list_box.append(card)
             # Full-text search key: name + aliases + every visible fix's text, so
             # typing e.g. "multiplayer" surfaces games whose fix mentions it.
@@ -961,7 +1072,10 @@ class GamesPage(Gtk.Box):
             for i in issues:
                 parts.append(f"{i.symptom} {i.cause} {i.fix.value} "
                              f"{i.fix.type} {getattr(i.fix, 'content', '')}")
+            if game is not None and game.playability_reason:
+                parts.append(game.playability_reason)
             self.game_cards.append((" ".join(parts).lower(), card, reveal))
+        self._update_ready_banner()
         self._apply_search()
 
     def _empty(self, text):
@@ -981,11 +1095,14 @@ class GamesPage(Gtk.Box):
         non-matches and auto-expands matches so the reason for the match (the fix
         text) is visible; clearing the box shows everything collapsed again."""
         q = getattr(self, "_search_text", "")
+        pf = getattr(self, "_play_filter", None)
         for key, card, reveal in getattr(self, "game_cards", []):
-            match = q in key
-            card.set_visible(match or not q)
+            text_ok = (q in key) or not q
+            seg_ok = pf is None or self._play_state.get(getattr(card, "_appid", None)) == pf
+            show = text_ok and seg_ok
+            card.set_visible(show)
             if reveal:
-                reveal(bool(q) and match)
+                reveal(bool(q) and show)
 
     TILE_PALETTE = [
         ("#e0af68", "rgba(224,175,104,0.12)"), ("#7aa2f7", "rgba(122,162,247,0.12)"),
@@ -1000,10 +1117,13 @@ class GamesPage(Gtk.Box):
             return (words[0][0] + words[1][0]).upper()
         return name[:2].upper()
 
-    def _build_game_card(self, appid, name, issues, in_db, hidden=0):
+    def _build_game_card(self, appid, name, issues, game, hidden=0, state="unknown"):
+        broken = state == "broken"
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         card.add_css_class("v2-card")
-        if issues:
+        if broken:
+            card.add_css_class("v2-card-broken")
+        elif issues:
             card.add_css_class("v2-card-fix")
 
         # Title row: banner art (or initials fallback) + name/meta + status + tier
@@ -1038,7 +1158,9 @@ class GamesPage(Gtk.Box):
         nm = Gtk.Label(label=name); nm.add_css_class("game-title"); nm.set_xalign(0)
         nm.set_wrap(False); nm.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
         namecol.append(nm)
-        if issues:
+        if broken:
+            meta_txt = "won't run on Linux — see why below"
+        elif issues:
             meta_txt = f"{len(issues)} fix{'es' if len(issues) != 1 else ''} available"
         elif hidden:
             meta_txt = (f"{hidden} untested fix{'es' if hidden != 1 else ''} hidden "
@@ -1059,13 +1181,22 @@ class GamesPage(Gtk.Box):
         play = Gtk.Button(label="▶ Play"); play.add_css_class("btn-play")
         play.set_valign(Gtk.Align.CENTER)
         play.set_size_request(84, -1)   # fixed column so Play/pill/tier line up
-        play.set_tooltip_text("Launch this game through Steam")
-        play.connect("clicked", self._on_play, appid)
+        if broken:
+            # No point launching a game that can't run — and for some anti-cheat
+            # titles a failed launch attempt can even flag the account.
+            play.set_sensitive(False)
+            play.set_tooltip_text("This game can't run on Linux (see reason below)")
+        else:
+            play.set_tooltip_text("Launch this game through Steam")
+            play.connect("clicked", self._on_play, appid)
         title_row.append(play)
 
         # Fix-status pill — the actionable signal, so it carries the colour.
         pill = Gtk.Label(); pill.set_valign(Gtk.Align.CENTER)
-        if issues:
+        if broken:
+            pill.set_label("⛔ won't run")
+            pill.add_css_class("broken-pill")
+        elif issues:
             pill.set_label(f"● {len(issues)} fix{'es' if len(issues) != 1 else ''}")
             pill.add_css_class("fix-pill")
         elif hidden:
@@ -1085,7 +1216,15 @@ class GamesPage(Gtk.Box):
         # Collapsed by default — a long library is unreadable if every card shows
         # all its fixes at once. The header row toggles a revealer with the fixes.
         reveal_fn = None
-        if issues:
+        if broken:
+            # Won't-run cards stay open: the reason IS the payload. Any issues on
+            # a broken game are workaround notes, so we still show them.
+            card.append(title_row)
+            card.append(self._broken_row(game))
+            for issue in issues:
+                card.append(self._build_issue_row(appid, name, issue))
+            card.append(self._suggest_row(appid, name))
+        elif issues:
             chevron = Gtk.Label(label="▸"); chevron.add_css_class("game-chevron")
             chevron.set_valign(Gtk.Align.CENTER)
             title_row.append(chevron)
@@ -1120,6 +1259,60 @@ class GamesPage(Gtk.Box):
         self._load_tier_async(appid, tier_lbl)
         return card, reveal_fn
 
+    # Store labels for non-Steam titles — shown where the ProtonDB tier sits.
+    PLATFORM_LABELS = {"riot": "Riot", "epic": "Epic", "battlenet": "Battle.net",
+                       "ea": "EA App", "rockstar": "Rockstar", "other": "Non-Steam"}
+
+    def _build_non_steam_card(self, game, key):
+        """A won't-run card for a famous non-Steam title (Valorant/LoL/Fortnite).
+        No cover art, no Play button, no ProtonDB tier — just the honest verdict,
+        so a switcher sees it BEFORE hunting for a way to install it."""
+        label = self.PLATFORM_LABELS.get(game.platform, "Non-Steam")
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("v2-card"); card.add_css_class("v2-card-broken")
+
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=13)
+
+        # Initials tile — there's no Steam cover art for a non-Steam game. Seed
+        # the palette/CSS class off the name so the token is a safe integer.
+        seed = sum(map(ord, game.name))
+        fg, bg = self.TILE_PALETTE[seed % len(self.TILE_PALETTE)]
+        tile = Gtk.Label(label=self._initials(game.name))
+        tile.add_css_class("game-tile"); tile.set_size_request(44, 44)
+        tile.set_valign(Gtk.Align.CENTER)
+        css = Gtk.CssProvider()
+        load_css(css, f".ns-{seed} {{ background: {bg}; color: {fg}; }}")
+        tile.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        tile.add_css_class(f"ns-{seed}")
+        title_row.append(tile)
+
+        namecol = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        namecol.set_valign(Gtk.Align.CENTER)
+        nm = Gtk.Label(label=game.name); nm.add_css_class("game-title"); nm.set_xalign(0)
+        nm.set_wrap(False); nm.set_ellipsize(3)
+        namecol.append(nm)
+        meta = Gtk.Label(label=f"won't run on Linux — {label}, not on Steam")
+        meta.add_css_class("game-meta"); meta.set_xalign(0)
+        namecol.append(meta)
+        title_row.append(namecol)
+
+        spacer = Gtk.Box(); spacer.set_hexpand(True); title_row.append(spacer)
+
+        # Platform badge sits in the column the ProtonDB tier uses on Steam cards.
+        badge = Gtk.Label(label=label.upper()); badge.add_css_class("platform-badge")
+        badge.set_valign(Gtk.Align.CENTER)
+        badge.set_size_request(86, -1); badge.set_xalign(0.5)
+        title_row.append(badge)
+
+        pill = Gtk.Label(label="⛔ won't run"); pill.add_css_class("broken-pill")
+        pill.set_valign(Gtk.Align.CENTER)
+        pill.set_size_request(94, -1); pill.set_xalign(0.5)
+        title_row.append(pill)
+
+        card.append(title_row)
+        card.append(self._broken_row(game))
+        return card, None
+
     def _on_play(self, btn, appid):
         """Start the game via Steam's URL handler. Steam applies the launch
         options we've set, so this is the quickest way to check a fix worked."""
@@ -1147,6 +1340,39 @@ class GamesPage(Gtk.Box):
             return True
         except Exception:
             return False
+
+    def _broken_row(self, game):
+        """The 'why it won't run' block on a won't-run card — the honest bit that
+        saves a switcher an evening. Curated reason + the source that verified it."""
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        row.add_css_class("broken-row")
+        reason = (game.playability_reason if game else "") or \
+            "This game does not run on Linux — usually anti-cheat disabled by the publisher."
+        lbl = Gtk.Label(label=reason)
+        lbl.add_css_class("broken-reason"); lbl.set_xalign(0); lbl.set_wrap(True)
+        row.append(lbl)
+        src = game.playability_source if game else ""
+        if src:
+            link = self._source_link(src)
+            if link:
+                row.append(link)
+        return row
+
+    @staticmethod
+    def _source_link(src):
+        """Render a provenance string as a clickable link when it's a URL, else as
+        quiet grey text. Keeps the won't-run verdict auditable."""
+        src = src.strip()
+        if not src:
+            return None
+        if src.startswith("http://") or src.startswith("https://"):
+            link = Gtk.LinkButton(uri=src, label=f"Source: {src}")
+        elif "." in src and " " not in src:   # bare domain like areweanticheatyet.com/…
+            link = Gtk.LinkButton(uri="https://" + src, label=f"Source: {src}")
+        else:
+            link = Gtk.Label(label=f"Source: {src}"); link.set_xalign(0)
+        link.add_css_class("broken-source"); link.set_halign(Gtk.Align.START)
+        return link
 
     # ---------- community contribution: suggest a NEW fix ----------
     def _suggest_row(self, appid, name):
@@ -1724,6 +1950,14 @@ class GamesPage(Gtk.Box):
         except Exception:
             pass
 
+    # ProtonDB tier -> traffic-light bucket, used only to refine games with NO
+    # curated verdict. Deliberately NOT trusted for the red bucket's headline
+    # cases: ProtonDB's "borked" mixes "temporarily broken" with "permanently
+    # blocked", and an anti-cheat title can still show stale Gold reports — so the
+    # authoritative won't-run list stays curated (areweanticheatyet-sourced).
+    TIER_STATE = {"platinum": "play", "gold": "play", "native": "play",
+                  "silver": "fix", "bronze": "fix", "borked": "broken"}
+
     def _load_tier_async(self, appid, label):
         def work():
             tier, total = steam_scanner.protondb_tier(appid)
@@ -1736,6 +1970,7 @@ class GamesPage(Gtk.Box):
                       "borked": ("#f7768e", "rgba(247,118,142,0.14)"),
                       "pending": ("#565f89", "rgba(86,95,137,0.14)")}
             fg, bg = colors.get(tier, ("#565f89", "rgba(86,95,137,0.14)"))
+            refined = self.TIER_STATE.get(tier)
 
             def apply():
                 label.set_label(tier.upper())
@@ -1745,6 +1980,12 @@ class GamesPage(Gtk.Box):
                 label.get_style_context().add_provider(
                     css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
                 label.add_css_class(f"tier-{appid}")
+                # Fill in the traffic light for games with no curated verdict. A
+                # curated state (play/fix/broken) is never overridden by ProtonDB.
+                if refined and self._play_state.get(appid) == "unknown":
+                    self._play_state[appid] = refined
+                    self._update_ready_banner()
+                    self._apply_search()
                 return False
             GLib.idle_add(apply)
 
@@ -1992,6 +2233,57 @@ class CommandCenter(Adw.ApplicationWindow):
         .v2-card-fix {
             border-color: rgba(122,162,247,0.55); background: #191b29;
             box-shadow: inset 3px 0 0 0 #7aa2f7, 0 4px 20px rgba(122,162,247,0.12);
+        }
+        .v2-card-broken {
+            border-color: rgba(247,118,142,0.5); background: #1c1620;
+            box-shadow: inset 3px 0 0 0 #f7768e, 0 4px 20px rgba(247,118,142,0.10);
+        }
+        .broken-pill {
+            background: rgba(247,118,142,0.14); color: #f7768e;
+            border: 1px solid rgba(247,118,142,0.30);
+            border-radius: 20px; padding: 3px 12px; font-size: 11px; font-weight: 700;
+        }
+        .broken-row {
+            background: #12131b; border-radius: 10px; padding: 11px 14px;
+            margin-top: 2px; border: 1px solid rgba(247,118,142,0.14);
+        }
+        .broken-reason { color: #f7a8b8; font-size: 12px; }
+        .broken-source { color: #565f89; font-size: 10px; }
+        .broken-source:hover { color: #7aa2f7; }
+        .platform-badge {
+            font-size: 9px; font-weight: 700; letter-spacing: 1px;
+            color: #f7768e; background: rgba(247,118,142,0.10);
+            padding: 3px 9px; border-radius: 5px;
+        }
+
+        /* === Ready-to-Play traffic light === */
+        .play-seg {
+            background: #16161e; border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 11px; padding: 9px 12px; min-height: 0;
+        }
+        .play-seg:hover { background: #1b1c26; }
+        .seg-count { font-size: 17px; font-weight: 700;
+            font-family: 'JetBrains Mono', monospace; color: #c0caf5; }
+        .seg-cap { font-size: 11px; color: #a9b1d6; font-weight: 600; }
+        .seg-all { color: #a9b1d6; font-weight: 700; font-size: 12px; padding: 9px 18px; }
+        .seg-play.seg-active {
+            border-color: rgba(158,206,106,0.6);
+            box-shadow: inset 0 0 0 1px rgba(158,206,106,0.4);
+            background: rgba(158,206,106,0.10);
+        }
+        .seg-fix.seg-active {
+            border-color: rgba(224,175,104,0.6);
+            box-shadow: inset 0 0 0 1px rgba(224,175,104,0.4);
+            background: rgba(224,175,104,0.10);
+        }
+        .seg-broken.seg-active {
+            border-color: rgba(247,118,142,0.6);
+            box-shadow: inset 0 0 0 1px rgba(247,118,142,0.4);
+            background: rgba(247,118,142,0.10);
+        }
+        .seg-all.seg-active {
+            border-color: rgba(122,162,247,0.6);
+            background: rgba(122,162,247,0.10); color: #7aa2f7;
         }
         .issue-row {
             background: #12131b; border-radius: 10px; padding: 11px 14px;
@@ -4084,8 +4376,12 @@ class App(Adw.Application):
         try:
             win = CommandCenter(self)
             win.present()
+            # GCC_START_PAGE marks a tooling/screenshot launch — maximise for a
+            # full, unoccluded capture and skip the first-run modal.
+            if os.environ.get("GCC_START_PAGE"):
+                win.maximize()
             # First launch without system integration → offer one-click setup.
-            if needs_setup():
+            elif needs_setup():
                 SetupDialog(win).present()
         except Exception:
             # If building the UI throws, print the traceback and quit so the
