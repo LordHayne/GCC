@@ -1,0 +1,43 @@
+name: Build AppImage
+
+# Builds the self-contained AppImage on an Ubuntu 22.04 runner — the same old,
+# stable base the local container build uses (glibc 2.35 → runs on any modern
+# desktop, classic gdk-pixbuf with no glycin). Attaches it to the GitHub Release
+# so the landing page can link to a stable download URL:
+#   https://github.com/LordHayne/GCC/releases/latest/download/Gaming_Command_Center-x86_64.AppImage
+#
+# Cut a release by pushing a tag:  git tag v0.1.0 && git push origin v0.1.0
+# Or run it by hand from the Actions tab (produces a downloadable artifact only).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write        # needed to attach the AppImage to a Release
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the AppImage
+        run: |
+          mkdir -p dist
+          SRC="$PWD" OUT="$PWD/dist" bash appimage/build-in-container.sh
+
+      - name: Upload as a workflow artifact (every run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gaming_Command_Center-x86_64.AppImage
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+      - name: Attach to the Release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.AppImage
+          fail_on_unmatched_files: true

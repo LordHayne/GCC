@@ -15,19 +15,24 @@ export APPIMAGE_EXTRACT_AND_RUN=1   # containers have no FUSE
 export NO_STRIP=1                   # keep it simple/robust
 export DEPLOY_GTK_VERSION=4         # the gtk plugin can't auto-detect from a py app
 
-SRC=/src
-OUT=/out
-BUILD=/tmp/build
+# Paths default to the podman bind mounts, but are overridable so the same
+# script runs on a GitHub ubuntu-22.04 runner (SRC=repo, OUT=repo/dist).
+SRC="${SRC:-/src}"
+OUT="${OUT:-/out}"
+BUILD="${BUILD:-/tmp/build}"
 APPDIR="$BUILD/AppDir"
 TOOLS="$BUILD/tools"
 APPNAME=gaming-command-center
+
+# In the container we're root; on a CI runner we're not, so escalate apt.
+SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
 banner() { echo; echo ">>> $*"; }
 die()    { echo "❌ $*" >&2; exit 1; }
 
 banner "Installing the GTK4 + Python runtime (apt)"
-apt-get update -qq
-apt-get install -y --no-install-recommends \
+$SUDO apt-get update -qq
+$SUDO apt-get install -y --no-install-recommends \
     python3 python3-gi python3-gi-cairo python3-yaml \
     gir1.2-gtk-4.0 gir1.2-adw-1 libgtk-4-1 libadwaita-1-0 \
     librsvg2-common libgdk-pixbuf-2.0-0 \
