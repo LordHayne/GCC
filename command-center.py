@@ -23,6 +23,7 @@ from topology import CPUTopology, format_cpu_list, save_config
 import game_db
 import steam_scanner
 import app_update
+import report_stats
 
 # Directory this script lives in — used to load bundled assets (the logo, etc.)
 # by an absolute path that works for any user, whether run from source or after
@@ -760,6 +761,17 @@ class GamesPage(Gtk.Box):
     offers one-click fixes. The database is the trust boundary (game_db only
     ever loads whitelisted fix types); this page just applies them."""
 
+    # --- Community report: no-account channel (Google Form) ---
+    # The account-free way to report a result: the app opens a pre-filled Google
+    # Form, the user just hits Submit, and the response lands in a sheet the
+    # nightly aggregator reads. Filled in once the Form exists:
+    #   FORM_PREFILL_URL — the "Get pre-filled link" URL (…/viewform).
+    #   FORM_FIELDS      — maps our data keys to the form's entry.NNN field ids.
+    # Until BOTH are set, the share dialog falls back to Copy report, so the
+    # feature is never broken while the Form is being created.
+    FORM_PREFILL_URL = ""
+    FORM_FIELDS = {}   # e.g. {"game": "entry.111", "appid": "entry.222", ...}
+
     def __init__(self, win, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
         self.win = win
@@ -800,14 +812,18 @@ class GamesPage(Gtk.Box):
         self._check_db_update()
 
     def _check_db_update(self):
-        """Refresh the fix database from GitHub in the background (throttled to
-        once a day). If new fixes arrived, reload and re-render silently."""
+        """Refresh the fix database AND the community report tally from GitHub in
+        the background (each throttled to once a day). If either changed, reload
+        and re-render silently — the community counts grow with no user action."""
         def work():
-            if game_db.maybe_update() != "updated":
+            db_changed = game_db.maybe_update() == "updated"
+            reports_changed = report_stats.maybe_update() == "updated"
+            if not (db_changed or reports_changed):
                 return
             def apply():
-                self.db, self.db_err = game_db.load_games()
-                self.rescan()
+                if db_changed:
+                    self.db, self.db_err = game_db.load_games()
+                self.rescan()   # rescan re-reads the report cache too
                 return False
             GLib.idle_add(apply)
         threading.Thread(target=work, daemon=True).start()
@@ -858,6 +874,10 @@ class GamesPage(Gtk.Box):
 
     def rescan(self):
         self._clear()
+        # The community tally (worked/didn't counts per fix). Read once from the
+        # local cache and reused for every card; the network refresh happens in
+        # the background (_check_db_update).
+        self._report_data = report_stats.load()
         if self.db_err:
             self.subtitle.set_text(self.db_err)
             self._empty(f"Cannot load fix database: {self.db_err}")
@@ -1102,6 +1122,28 @@ class GamesPage(Gtk.Box):
         return (f"{self.win.GITHUB_URL}/issues/new?labels=fix-report"
                 f"&title={quote(title)}&body={quote(body)}")
 
+    def _google_form_url(self, appid, name, issue, worked):
+        """Pre-filled Google Form URL — the no-account channel. Returns None
+        until the Form is configured (FORM_PREFILL_URL + FORM_FIELDS), so callers
+        fall back to Copy report meanwhile."""
+        if not self.FORM_PREFILL_URL or not self.FORM_FIELDS:
+            return None
+        from urllib.parse import urlencode
+        vals = {
+            "game": name,
+            "appid": str(appid),
+            "fix": self._fix_summary(issue.fix),
+            "result": "Worked" if worked else "Didn't work",
+            "gpu": self.win.gpu.name or self._gpu_vendor() or "",
+            "cpu": self._cpu_model() or self._cpu_vendor() or "",
+            "session": {"wayland": "Wayland", "x11": "X11"}.get(self._session(), ""),
+            "distro": self._distro_name() or "",
+            "appversion": self.win.APP_VERSION,
+        }
+        params = {entry: vals[k] for k, entry in self.FORM_FIELDS.items() if k in vals}
+        sep = "&" if "?" in self.FORM_PREFILL_URL else "?"
+        return f"{self.FORM_PREFILL_URL}{sep}{urlencode(params)}"
+
     def _votes_path(self):
         base = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
         return os.path.join(base, "gaming-command-center", "fix_reports.json")
@@ -1155,6 +1197,15 @@ class GamesPage(Gtk.Box):
         down.set_tooltip_text("This fix didn't work for me — share the result")
         down.connect("clicked", self._on_fix_feedback, appid, name, issue, False, prompt)
         box.append(up); box.append(down)
+
+        # Live community tally next to the buttons, when reports exist.
+        counts = report_stats.counts_for(
+            getattr(self, "_report_data", {}), appid, self._fix_summary(issue.fix))
+        if counts:
+            tally = Gtk.Label(label=f"· 👍 {counts['worked']}  👎 {counts['failed']}")
+            tally.add_css_class("feedback-q"); tally.set_valign(Gtk.Align.CENTER)
+            tally.set_tooltip_text("Community reports (updates automatically)")
+            box.append(tally)
         return box
 
     def _on_fix_feedback(self, btn, appid, name, issue, worked, prompt):
@@ -1188,10 +1239,17 @@ class GamesPage(Gtk.Box):
         title.set_xalign(0)
         body.append(title)
 
+        form_url = self._google_form_url(appid, name, issue, worked)
         sub = Gtk.Label()
-        sub.set_markup("<span color='#a9b1d6'>Sharing your result makes the database "
-                       "better for everyone. No GitHub account? Just copy the report "
-                       "and paste it anywhere — our community, an email, wherever.</span>")
+        if form_url:
+            sub.set_markup("<span color='#a9b1d6'>Sharing your result makes the database "
+                           "better for everyone. <b>No account needed</b> — hit "
+                           "<b>Send report</b> and Submit. Prefer GitHub, or want to "
+                           "paste it somewhere yourself? Those work too.</span>")
+        else:
+            sub.set_markup("<span color='#a9b1d6'>Sharing your result makes the database "
+                           "better for everyone. No GitHub account? Just copy the report "
+                           "and paste it anywhere — our community, an email, wherever.</span>")
         sub.set_wrap(True); sub.set_xalign(0)
         body.append(sub)
 
@@ -1205,9 +1263,9 @@ class GamesPage(Gtk.Box):
 
         btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         btns.set_halign(Gtk.Align.END); btns.set_margin_top(4)
-        copy_btn = Gtk.Button(label="Copy report"); copy_btn.add_css_class("btn-apply-sm")
-        gh_btn = Gtk.Button(label="Report on GitHub"); gh_btn.add_css_class("btn-game-on")
         close_btn = Gtk.Button(label="Close"); close_btn.add_css_class("flat")
+        copy_btn = Gtk.Button(label="Copy report"); copy_btn.add_css_class("btn-apply-sm")
+        gh_btn = Gtk.Button(label="Report on GitHub"); gh_btn.add_css_class("btn-apply-sm")
 
         def on_copy(_b):
             self._copy(report)
@@ -1219,6 +1277,19 @@ class GamesPage(Gtk.Box):
         gh_btn.connect("clicked", on_gh)
         close_btn.connect("clicked", lambda *_: win.close())
         btns.append(close_btn); btns.append(copy_btn); btns.append(gh_btn)
+
+        if form_url:
+            # The account-free primary path: pre-filled form, just Submit.
+            send_btn = Gtk.Button(label="Send report"); send_btn.add_css_class("btn-game-on")
+            send_btn.set_tooltip_text("Opens a pre-filled form — no account needed, just hit Submit")
+            def on_send(_b):
+                self._open_url(form_url)
+                status.set_markup("<span color='#9ece6a'>Opening the report form — "
+                                  "just hit Submit. Thank you!</span>")
+            send_btn.connect("clicked", on_send)
+            btns.append(send_btn)
+        else:
+            gh_btn.remove_css_class("btn-apply-sm"); gh_btn.add_css_class("btn-game-on")
         body.append(btns)
 
         win.set_content(root)
@@ -1235,12 +1306,19 @@ class GamesPage(Gtk.Box):
         sym = Gtk.Label(label=issue.symptom); sym.add_css_class("issue-symptom")
         sym.set_xalign(0); sym.set_wrap(True)
         top.append(sym)
-        badge = Gtk.Label()
+        # Trust tier: the green VERIFIED star is a maintainer decision; the blue
+        # COMMUNITY badge is data-driven (grows on its own from reports); UNTESTED
+        # is the honest default. counts come from the cached community tally.
+        counts = report_stats.counts_for(
+            getattr(self, "_report_data", {}), appid, self._fix_summary(issue.fix))
+        badge = Gtk.Label(); badge.set_valign(Gtk.Align.CENTER)
         if issue.fix.verified:
             badge.set_label("✓ VERIFIED"); badge.add_css_class("badge-verified")
+        elif report_stats.is_community_confirmed(counts):
+            badge.set_label(f"✓ COMMUNITY ({counts['worked']})")
+            badge.add_css_class("badge-community")
         else:
             badge.set_label("UNTESTED"); badge.add_css_class("badge-untested")
-        badge.set_valign(Gtk.Align.CENTER)
         top.append(badge)
         col.append(top)
 
@@ -1678,6 +1756,10 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         .badge-verified {
             background: rgba(158,206,106,0.15); color: #9ece6a;
+            border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: bold;
+        }
+        .badge-community {
+            background: rgba(122,162,247,0.15); color: #7aa2f7;
             border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: bold;
         }
         .badge-untested {

@@ -1,0 +1,53 @@
+name: Aggregate community reports
+
+# The engine of the self-sustaining verification loop. Once a day it tallies all
+# community fix reports — GitHub issues labelled `fix-report` plus (optionally) a
+# Google Form response sheet — into reports.json at the repo root, and commits it
+# if anything changed. The app fetches reports.json daily and shows the
+# "community-confirmed" counts, so the database keeps improving with NO
+# maintainer action. See tools/aggregate_reports.py.
+#
+# No secrets to configure: the default GITHUB_TOKEN can read public issues and
+# push the file. To also count the no-account Google Form channel, set a repo
+# variable FORM_CSV_URL (Settings → Secrets and variables → Actions → Variables)
+# to the Form response sheet's "Publish to web" CSV URL.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'    # 03:17 UTC daily (off the hour to be a good citizen)
+  workflow_dispatch:          # run on demand from the Actions tab
+
+permissions:
+  contents: write             # commit the updated reports.json
+
+concurrency:
+  group: aggregate-reports
+  cancel-in-progress: true
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Tally reports into reports.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORM_CSV_URL: ${{ vars.FORM_CSV_URL }}
+        run: python3 tools/aggregate_reports.py
+
+      - name: Commit if changed
+        run: |
+          if [ -n "$(git status --porcelain reports.json)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add reports.json
+            git commit -m "Aggregate community fix reports (automated)"
+            git push
+          else
+            echo "reports.json unchanged — nothing to commit."
+          fi
