@@ -23,6 +23,11 @@ from topology import CPUTopology, format_cpu_list, save_config
 import game_db
 import steam_scanner
 
+# Directory this script lives in — used to load bundled assets (the logo, etc.)
+# by an absolute path that works for any user, whether run from source or after
+# install.sh (which launches the app straight from this folder).
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 # ============================================================
 # GPU Info (NVIDIA)
@@ -1446,14 +1451,15 @@ class CommandCenter(Adw.ApplicationWindow):
         logo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         logo_box.set_margin_start(12); logo_box.set_margin_end(12)
         logo_box.set_margin_top(18); logo_box.set_margin_bottom(16)
-        try:
-            logo_img = Gtk.Image.new_from_file(
-                "/home/thomas/.local/share/icons/hicolor/256x256/apps/gaming-command-center.png")
+        # Load from the logo bundled next to the script, not a per-user icon
+        # path — the old hardcoded /home/<user>/… path broke for everyone else
+        # and was never populated by install.sh anyway.
+        logo_path = os.path.join(BASE_DIR, "GCC_logo.png")
+        if os.path.exists(logo_path):
+            logo_img = Gtk.Image.new_from_file(logo_path)
             logo_img.set_pixel_size(36)
             logo_img.add_css_class("logo-img")
             logo_box.append(logo_img)
-        except Exception:
-            pass
         title = Gtk.Label(label="GAMING\nCOMMAND CENTER")
         title.set_halign(Gtk.Align.START)
         title.set_justify(Gtk.Justification.LEFT)
