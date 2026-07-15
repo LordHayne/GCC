@@ -63,6 +63,9 @@ games:
   - name: "Overwatch 2"
     steam_id: 2357570
     aliases: ["overwatch", "ow2"]
+    playability: playable
+    playability_reason: "Blizzard Defense Matrix has no kernel driver and Blizzard says Linux play is not bannable (areweanticheatyet: Supported)."
+    playability_source: "areweanticheatyet.com/game/overwatch-2"
     issues:
       - symptom: "Stuttering / frame hitches during gameplay"
         cause: "NVIDIA host-visible VRAM (HVV) upload stutter in vkd3d-proton.
@@ -97,6 +100,9 @@ games:
   - name: "Cyberpunk 2077"
     steam_id: 1091500
     aliases: ["cyberpunk"]
+    playability: playable
+    playability_reason: "No anti-cheat; ProtonDB Gold/Platinum via Proton."
+    playability_source: "protondb.com/app/1091500"
     issues:
       - symptom: "REDlauncher hangs or a long black screen appears before the main menu"
         cause: "The intermediate REDlauncher/start splash behaves poorly under Proton; skipping it launches the game engine directly (gamemoderun also applies Feral GameMode)."
@@ -136,6 +142,9 @@ games:
   - name: "Elden Ring"
     steam_id: 1245620
     aliases: ["elden ring", "er"]
+    playability: playable
+    playability_reason: "FromSoftware enabled Easy Anti-Cheat for Proton, so online works too."
+    playability_source: "areweanticheatyet.com/game/elden-ring"
     issues:
       - symptom: "Game crashes or freezes shortly after launch"
         cause: "Default Proton version can hit a VKD3D shader-cache race;
@@ -193,6 +202,9 @@ games:
   - name: "Baldur's Gate 3"
     steam_id: 1086940
     aliases: ["bg3", "baldurs gate 3"]
+    playability: playable
+    playability_reason: "Native Linux/Vulkan build, ProtonDB Platinum, no anti-cheat."
+    playability_source: "protondb.com/app/1086940"
     issues:
       - symptom: "Act 2 fails to load or game crashes in Act 2 when using the Windows version via Proton"
         cause: "The Proton (Windows) version has a loading bug in Act 2;
@@ -318,6 +330,9 @@ games:
   - name: "Counter-Strike 2"
     steam_id: 730
     aliases: ["cs2", "counter-strike"]
+    playability: playable
+    playability_reason: "Native Linux build; VAC works on Linux with no anti-cheat block."
+    playability_source: "protondb.com/app/730"
     issues:
       - symptom: "No audio, or crackling/stuttering audio in the native Linux build"
         cause: "CS2's SDL3 audio backend picks a poor default output on Linux; forcing the PipeWire driver restores clean audio. (-vulkan is not needed on Linux - Vulkan is already the default renderer.)"
@@ -385,6 +400,9 @@ games:
   - name: "Dota 2"
     steam_id: 570
     aliases: ["dota"]
+    playability: playable
+    playability_reason: "Native Linux client, VAC-supported, runs great."
+    playability_source: "protondb.com/app/570"
     issues:
       - symptom: "No audio, or crackling / stuttering sound in the native Linux client"
         cause: "SDL2 defaults to its PulseAudio backend, which misbehaves on modern PipeWire setups; forcing SDL's native PipeWire driver fixes dropouts and crackle."
@@ -592,6 +610,9 @@ games:
   - name: "The Witcher 3: Wild Hunt"
     steam_id: 292030
     aliases: ["witcher 3", "tw3"]
+    playability: playable
+    playability_reason: "No anti-cheat; ProtonDB Platinum via Proton."
+    playability_source: "protondb.com/app/292030"
     issues:
       - symptom: "The CD Projekt RED launcher opens on every start and under Proton can hang, show a black/empty window, or fail to hand off to the game"
         cause: "The next-gen update added a flaky secondary Qt launcher. --launcher-skip boots the game directly. NOTE: --launcher-skip always starts the DX12 renderer, ignoring any DX11 choice saved in the launcher."
@@ -1046,6 +1067,9 @@ games:
   - name: "Warframe"
     steam_id: 230410
     aliases: ["warframe"]
+    playability: playable
+    playability_reason: "ProtonDB Gold; anti-cheat works and it runs well."
+    playability_source: "protondb.com/app/230410"
     issues:
       - symptom: "Launcher opens but never gets past 'Checking for updates'; the Play button stays disabled"
         cause: "The 32-bit Warframe launcher/bootstrapper has trouble rendering and updating under older or stock Proton. Proton-GE carries Warframe-specific patches, and recent Proton (9/10) fixed launcher window rendering."
@@ -1409,6 +1433,9 @@ games:
   - name: "Marvel Rivals"
     steam_id: 2767030
     aliases: ["marvel rivals", "rivals"]
+    playability: fixable
+    playability_reason: "NetEase NEAC runs in user space and tolerates Proton, but it is volatile across patches and often needs SteamDeck=1 %command%."
+    playability_source: "areweanticheatyet.com/game/marvel-rivals"
     issues:
       - symptom: "Game bounces back to desktop / refuses to launch on Linux (fails NetEase launcher/anti-cheat platform check)"
         cause: "Marvel Rivals' NetEase launcher gates startup on the Steam Deck runtime flag; without it, Proton launches can fail on regular desktop Linux."
@@ -1628,6 +1655,9 @@ games:
   - name: "Rocket League"
     steam_id: 252950
     aliases: ["rocket league", "rl"]
+    playability: playable
+    playability_reason: "EAC is enabled for Proton - pick the 'with Anti-Cheat' launch option to play online."
+    playability_source: "areweanticheatyet.com/game/rocket-league"
     issues:
       - symptom: "Game won't launch on Linux (exits immediately or shows no compatible build)"
         cause: "Psyonix removed the native Linux build in March 2020 when the game moved to Epic; only the Windows build ships now, so Steam must be told to run it through Proton."
@@ -2051,6 +2081,9 @@ games:
   - name: "THE FINALS"
     steam_id: 2073850
     aliases: ["the finals", "finals"]
+    playability: playable
+    playability_reason: "Embark enabled EAC and Denuvo Anti-Cheat for Linux - areweanticheatyet lists it Supported."
+    playability_source: "areweanticheatyet.com/game/the-finals"
     issues:
       - symptom: "Game fails to launch / EAC error - anti-cheat does not initialize under Proton"
         cause: "The Finals uses Easy Anti-Cheat; it needs the Proton EAC runtime and the Linux EAC path enabled. Without it the game closes immediately at the splash/EAC handshake."
@@ -2606,6 +2639,9 @@ games:
   - name: "Halo Infinite"
     steam_id: 1240440
     aliases: ["halo infinite", "halo"]
+    playability: playable
+    playability_reason: "Easy Anti-Cheat works via Proton with no workaround needed since late 2022 (areweanticheatyet: Supported)."
+    playability_source: "areweanticheatyet.com/game/halo-infinite"
     issues:
       - symptom: "Multiplayer or campaign won't launch, or you installed via the Xbox / Microsoft Store app"
         cause: "Only the Steam release runs under Proton; the Xbox App / Microsoft Store build does not. The Steam version's Easy Anti-Cheat has Linux (Proton) support enabled by the developer, so both campaign and multiplayer work."
