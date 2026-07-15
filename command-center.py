@@ -1108,7 +1108,19 @@ class GamesPage(Gtk.Box):
 
     def _apply(self, appid, fix):
         if fix.type == "launch_option":
-            return steam_scanner.set_launch_options(appid, fix.value)
+            # MERGE into existing options, never clobber them — a user's launch
+            # line (gamescope, game-performance, other env vars) is often exactly
+            # what makes their game run well. Prepend the fix's prefix (the part
+            # before %command%, e.g. an env var) unless it's already there.
+            existing = (steam_scanner.get_launch_options(appid) or "").strip()
+            prefix = fix.value.replace("%command%", "").strip()
+            if not existing:
+                value = fix.value
+            elif prefix and prefix in existing:
+                value = existing            # already present — leave it untouched
+            else:
+                value = f"{prefix} {existing}".strip()
+            return steam_scanner.set_launch_options(appid, value)
         if fix.type == "file":
             path = os.path.expanduser(fix.path)
             try:
