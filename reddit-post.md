@@ -1,7 +1,8 @@
 # Reddit r/linux_gaming Post Draft
 
-> Post as a text post. **Attach the 4 screenshots** (dashboard, system-doctor,
-> games, benchmark) from `assets/screenshots/`. Reply to early comments fast.
+> Post as a text post. **Attach the 4 screenshots in this order** —
+> games (hero), system-doctor, dashboard, benchmark — from `assets/screenshots/`.
+> Reply to early comments fast.
 
 ## Title (max 300 chars)
 
