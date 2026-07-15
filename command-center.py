@@ -22,6 +22,7 @@ from system_scanner import scan_system
 from topology import CPUTopology, format_cpu_list, save_config
 import game_db
 import steam_scanner
+import app_update
 
 # Directory this script lives in — used to load bundled assets (the logo, etc.)
 # by an absolute path that works for any user, whether run from source or after
@@ -1602,6 +1603,7 @@ class CommandCenter(Adw.ApplicationWindow):
         self.build_ui()
         self.refresh()
         threading.Thread(target=self._monitor_loop, daemon=True).start()
+        self._check_app_update()
         self.connect("close-request", self._on_close)
 
     def _on_close(self, *_):
@@ -2384,6 +2386,11 @@ class CommandCenter(Adw.ApplicationWindow):
         ver = Gtk.Label(label=f"Version {self.APP_VERSION} \u00b7 GPL-3.0-or-later")
         ver.add_css_class("info-card-sub"); ver.set_xalign(0)
         about.append(ver)
+        # Update status \u2014 filled in by the background release check on startup.
+        self.update_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.update_box.set_margin_top(4)
+        about.append(self.update_box)
+        self._render_update_status()
         links = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         links.set_margin_top(6)
         links.append(Gtk.LinkButton.new_with_label(self.GITHUB_URL, "GitHub"))
@@ -2394,6 +2401,78 @@ class CommandCenter(Adw.ApplicationWindow):
         scroll.set_child(box)
         page.append(scroll)
         return page
+
+    # ---------- app-code update (About section) ----------
+    def _check_app_update(self):
+        """Background release check on startup; fills the About update row."""
+        def work():
+            info = app_update.check_update(self.APP_VERSION, BASE_DIR)
+            def apply():
+                self.update_info = info
+                self._render_update_status()
+                return False
+            GLib.idle_add(apply)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _render_update_status(self):
+        box = getattr(self, "update_box", None)
+        if box is None:
+            return
+        child = box.get_first_child()
+        while child:
+            nxt = child.get_next_sibling(); box.remove(child); child = nxt
+
+        info = getattr(self, "update_info", None)
+        if not info:
+            return   # not checked yet / offline — show nothing
+        if not info["available"]:
+            lbl = Gtk.Label(); lbl.set_xalign(0)
+            lbl.set_markup("<span color='#9ece6a'>✓ You're on the latest version</span>")
+            lbl.add_css_class("info-card-sub")
+            box.append(lbl)
+            return
+
+        latest = info["latest"]
+        head = Gtk.Label(); head.set_xalign(0)
+        head.set_markup(f"<span color='#e0af68' weight='bold'>⬆ Update available: "
+                        f"{GLib.markup_escape_text(latest)}</span>")
+        box.append(head)
+
+        if info["channel"] == "source":
+            btn = Gtk.Button(label="Update now (git pull)")
+            btn.add_css_class("btn-apply"); btn.set_halign(Gtk.Align.START)
+            self._update_result = Gtk.Label(); self._update_result.set_xalign(0)
+            self._update_result.add_css_class("info-card-sub")
+            btn.connect("clicked", self._on_git_update)
+            box.append(btn); box.append(self._update_result)
+        elif info["channel"] == "appimage":
+            link = Gtk.LinkButton.new_with_label(app_update.DOWNLOAD_URL, f"Download {latest}")
+            link.set_halign(Gtk.Align.START); box.append(link)
+            hint = Gtk.Label(label="Then replace your current .AppImage with the download.")
+            hint.add_css_class("info-card-sub"); hint.set_xalign(0); box.append(hint)
+        else:  # managed (AUR / distro package)
+            lbl = Gtk.Label(label="Update via your package manager, or grab it from Releases:")
+            lbl.add_css_class("info-card-sub"); lbl.set_xalign(0); box.append(lbl)
+            link = Gtk.LinkButton.new_with_label(app_update.RELEASES_PAGE, "Releases")
+            link.set_halign(Gtk.Align.START); box.append(link)
+
+    def _on_git_update(self, btn):
+        btn.set_sensitive(False); btn.set_label("Updating…")
+        self._update_result.set_text("")
+        def work():
+            ok, msg = app_update.git_pull(BASE_DIR)
+            def done():
+                btn.set_label("Update now (git pull)")
+                btn.set_sensitive(not ok)
+                safe = GLib.markup_escape_text(msg)
+                if ok:
+                    self._update_result.set_markup(
+                        f"<span color='#9ece6a'>✓ {safe} — restart to apply</span>")
+                else:
+                    self._update_result.set_markup(f"<span color='#f7768e'>{safe}</span>")
+                return False
+            GLib.idle_add(done)
+        threading.Thread(target=work, daemon=True).start()
 
     def _settings_group(self, box, title):
         """Append a section header + an empty group card; return the card so the
