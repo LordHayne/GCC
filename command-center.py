@@ -213,43 +213,43 @@ class GameDoctorPage(Gtk.Box):
     def __init__(self, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
 
-        # Title lives in the shared header now — this page starts with its
-        # scan button + status row.
-        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        top_bar.set_margin_start(16); top_bar.set_margin_end(16)
-        top_bar.set_margin_top(16); top_bar.set_margin_bottom(8)
+        self.scanning = False
 
-        self.scan_btn = Gtk.Button(label="Scan System")
-        self.scan_btn.add_css_class("btn-apply")
+        # Info line + Run Full Scan
+        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        top_bar.set_margin_start(24); top_bar.set_margin_end(24)
+        top_bar.set_margin_top(16); top_bar.set_margin_bottom(8)
+        self.scan_status_lbl = Gtk.Label(label="not scanned yet")
+        self.scan_status_lbl.add_css_class("game-meta"); self.scan_status_lbl.set_xalign(0)
+        top_bar.append(self.scan_status_lbl)
+        spacer = Gtk.Box(); spacer.set_hexpand(True); top_bar.append(spacer)
+        self.scan_btn = Gtk.Button(label="RUN FULL SCAN")
+        self.scan_btn.add_css_class("btn-apply-sm")
         self.scan_btn.connect("clicked", self.on_scan_clicked)
         top_bar.append(self.scan_btn)
-
-        spacer = Gtk.Box(); spacer.set_hexpand(True); top_bar.append(spacer)
-
-        self.scan_status_lbl = Gtk.Label(label="")
-        self.scan_status_lbl.add_css_class("stat-label")
-        top_bar.append(self.scan_status_lbl)
         self.append(top_bar)
 
-        self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        # Summary banner (hidden until a scan completes)
+        self.summary_lbl = Gtk.Label(label="")
+        self.summary_lbl.set_xalign(0); self.summary_lbl.set_wrap(True)
+        self.summary_lbl.add_css_class("doctor-summary")
+        self.summary_lbl.set_margin_start(24); self.summary_lbl.set_margin_end(24)
+        self.summary_lbl.set_visible(False)
+        self.append(self.summary_lbl)
 
         # Scrolled area for results
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_vexpand(True)
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
-        clamp = Adw.Clamp()
-        clamp.set_maximum_size(700)
-
         self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.results_box.set_margin_start(10)
-        self.results_box.set_margin_end(10)
+        self.results_box.set_margin_start(24)
+        self.results_box.set_margin_end(24)
         self.results_box.set_margin_top(8)
-        self.results_box.set_margin_bottom(8)
+        self.results_box.set_margin_bottom(16)
         self.results_box.append(self._build_empty_state())
 
-        clamp.set_child(self.results_box)
-        self.scroll.set_child(clamp)
+        self.scroll.set_child(self.results_box)
         self.append(self.scroll)
 
     def _build_empty_state(self):
@@ -296,40 +296,28 @@ class GameDoctorPage(Gtk.Box):
         box.append(grid)
 
         hint = Gtk.Label()
-        hint.set_markup("<span color='#565f89' size='11000'>Click “Scan System” above to begin</span>")
+        hint.set_markup("<span color='#565f89' size='11000'>Click “Run Full Scan” above to begin</span>")
         hint.set_margin_top(10)
         box.append(hint)
         return box
-
-        # Summary at bottom
-        self.summary_lbl = Gtk.Label(label="")
-        self.summary_lbl.set_halign(Gtk.Align.CENTER)
-        self.summary_lbl.set_margin_top(4)
-        self.summary_lbl.set_margin_bottom(8)
-        self.append(self.summary_lbl)
-
-        self.scanning = False
 
     def on_scan_clicked(self, btn):
         if self.scanning:
             return
         self.scanning = True
         self.scan_btn.set_sensitive(False)
-        self.scan_btn.set_label("Scanning...")
-        self.scan_status_lbl.set_label("Scanning system...")
+        self.scan_btn.set_label("SCANNING…")
+        self.scan_status_lbl.set_label("scanning system…")
 
-        # Clear old results
         child = self.results_box.get_first_child()
         while child:
             next_child = child.get_next_sibling()
             self.results_box.remove(child)
             child = next_child
-
-        # Add spinner
-        spinner = Gtk.Spinner()
-        spinner.set_margin_top(40)
-        spinner.start()
+        spinner = Gtk.Spinner(); spinner.set_margin_top(40); spinner.start()
         self.results_box.append(spinner)
+
+        start = time.monotonic()
 
         def run_scan():
             try:
@@ -337,105 +325,71 @@ class GameDoctorPage(Gtk.Box):
             except Exception as e:
                 checks = []
                 GLib.idle_add(lambda: self.scan_status_lbl.set_label(f"Error: {e}"))
-            GLib.idle_add(lambda: self.display_results(checks))
+            took = time.monotonic() - start
+            GLib.idle_add(lambda: self.display_results(checks, took))
 
         threading.Thread(target=run_scan, daemon=True).start()
 
-    def display_results(self, checks):
+    def display_results(self, checks, took=0.0):
         self.scanning = False
         self.scan_btn.set_sensitive(True)
-        self.scan_btn.set_label("Scan System")
-        self.scan_status_lbl.set_label("Scan complete")
+        self.scan_btn.set_label("RUN FULL SCAN")
 
-        # Clear
         child = self.results_box.get_first_child()
         while child:
             next_child = child.get_next_sibling()
             self.results_box.remove(child)
             child = next_child
 
-        ok_count = 0
-        warn_count = 0
-        info_count = 0
+        ok = sum(1 for c in checks if c.status == "ok")
+        warn = sum(1 for c in checks if c.status == "warning")
+        info = sum(1 for c in checks if c.status == "info")
 
-        for check in checks:
-            if check.status == "ok":
-                ok_count += 1
-            elif check.status == "warning":
-                warn_count += 1
-            elif check.status == "info":
-                info_count += 1
+        # Warnings first, then info, then ok — most actionable at the top.
+        order = {"warning": 0, "info": 1, "ok": 2}
+        for check in sorted(checks, key=lambda c: order.get(c.status, 3)):
+            self.results_box.append(self._build_check_row(check))
 
-            row = self._build_check_row(check)
-            self.results_box.append(row)
-
-        # Summary
-        summary_text = f"{ok_count} OK, {warn_count} Warnings, {info_count} Info"
-        if warn_count > 0:
+        self.scan_status_lbl.set_label(f"{len(checks)} checks · scan took {took:.1f} s")
+        self.summary_lbl.set_visible(True)
+        self.summary_lbl.set_css_classes(
+            ["doctor-summary", "summary-warn" if warn else "summary-ok"])
+        if warn:
             self.summary_lbl.set_markup(
-                f"<span color='#e0af68' weight='bold'>  {summary_text}</span>")
-        elif ok_count > 0:
-            self.summary_lbl.set_markup(
-                f"<span color='#9ece6a' weight='bold'>  {summary_text}</span>")
+                f"<b>{warn} warning{'s' if warn != 1 else ''} found</b> — "
+                f"{ok} checks passed")
         else:
-            self.summary_lbl.set_markup(
-                f"<span color='#7aa2f7' weight='bold'>  {summary_text}</span>")
+            self.summary_lbl.set_markup(f"<b>All good</b> — {ok} checks passed, {info} info")
 
     def _build_check_row(self, check):
-        """Build a single check result row with visible card background."""
+        """A v2 check row: coloured status dot + name + message + optional FIX."""
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        row.add_css_class("wizard-row")
-        row.set_margin_start(8)
-        row.set_margin_end(8)
+        row.add_css_class("doctor-row")
+        row.add_css_class(f"doctor-row-{check.status}")
         row.set_margin_top(3)
-        row.set_margin_bottom(0)
 
-        # Status icon
-        icons = {"ok": "OK", "warning": "!", "info": "i"}
-        icon_lbl = Gtk.Label(label=icons.get(check.status, "i"))
-        icon_lbl.set_size_request(28, -1)
-        icon_lbl.set_xalign(0.5)
-        icon_lbl.set_valign(Gtk.Align.START)
-        icon_lbl.set_margin_top(4)
-        row.append(icon_lbl)
+        dot = Gtk.Box(); dot.set_size_request(8, 8)
+        dot.set_valign(Gtk.Align.CENTER)
+        dot.add_css_class("doctor-dot"); dot.add_css_class(f"dot-{check.status}")
+        row.append(dot)
 
-        # Text column
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-        text_box.set_hexpand(True)
-        text_box.set_valign(Gtk.Align.CENTER)
-
-        name_lbl = Gtk.Label(label=check.name)
-        name_lbl.set_halign(Gtk.Align.START)
-        name_lbl.set_xalign(0)
-        name_lbl.add_css_class("wizard-name")
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box.set_hexpand(True); text_box.set_valign(Gtk.Align.CENTER)
+        name_lbl = Gtk.Label(label=check.name); name_lbl.set_xalign(0)
+        name_lbl.add_css_class("doctor-name")
         text_box.append(name_lbl)
-
-        msg_lbl = Gtk.Label(label=check.message)
-        msg_lbl.set_halign(Gtk.Align.START)
-        msg_lbl.set_xalign(0)
-        msg_lbl.set_wrap(True)
-        msg_lbl.add_css_class("wizard-msg")
-        text_box.append(msg_lbl)
-
-        # Fix hint for warnings
+        msg = check.message
         if check.fix_message and check.status == "warning":
-            fix_lbl = Gtk.Label(label=f"-> {check.fix_message}")
-            fix_lbl.set_halign(Gtk.Align.START)
-            fix_lbl.set_xalign(0)
-            fix_lbl.set_wrap(True)
-            fix_lbl.add_css_class("wizard-fix")
-            text_box.append(fix_lbl)
-
+            msg = f"{check.message} — {check.fix_message}"
+        msg_lbl = Gtk.Label(label=msg); msg_lbl.set_xalign(0); msg_lbl.set_wrap(True)
+        msg_lbl.add_css_class("doctor-msg")
+        text_box.append(msg_lbl)
         row.append(text_box)
 
-        # Fix button for warnings
         if check.status == "warning" and check.fix_message:
-            fix_btn = Gtk.Button(label="Apply Fix")
-            fix_btn.add_css_class("btn-apply")
+            fix_btn = Gtk.Button(label="FIX")
+            fix_btn.add_css_class("btn-fix")
             fix_btn.set_valign(Gtk.Align.CENTER)
-            fix_btn.set_margin_start(8)
-            # The row's message label doubles as the result line, so a failed
-            # fix can say *why* instead of just turning the button red.
             fix_btn._msg_lbl = msg_lbl
             fix_btn.connect("clicked", self.on_fix_clicked, check)
             row.append(fix_btn)
@@ -1226,6 +1180,28 @@ class CommandCenter(Adw.ApplicationWindow):
         .offset-label { font-size: 9px; color: #565f89; letter-spacing: 1px; font-weight: 600; }
         .offset-value { font-size: 15px; color: #e0af68; font-family: 'JetBrains Mono', monospace; font-weight: 700; }
         .btn-quiet { background: rgba(255,255,255,0.03); color: #a9b1d6; border-radius: 9px; padding: 7px; border: 1px solid rgba(255,255,255,0.07); }
+
+        /* System Doctor v2 */
+        .doctor-row { border-radius: 10px; padding: 10px 14px; border: 1px solid transparent; }
+        .doctor-row-ok { background: rgba(158,206,106,0.03); border-color: rgba(158,206,106,0.08); }
+        .doctor-row-warning { background: rgba(224,175,104,0.05); border-color: rgba(224,175,104,0.14); }
+        .doctor-row-info { background: rgba(122,162,247,0.03); border-color: rgba(122,162,247,0.08); }
+        .doctor-dot { border-radius: 50%; }
+        .dot-ok { background: #9ece6a; box-shadow: 0 0 6px #9ece6a; }
+        .dot-warning { background: #e0af68; box-shadow: 0 0 6px #e0af68; }
+        .dot-info { background: #7aa2f7; box-shadow: 0 0 6px #7aa2f7; }
+        .doctor-name { color: #c0caf5; font-weight: 700; font-size: 12px; }
+        .doctor-msg { color: #9aa5ce; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+        .btn-fix {
+            background: rgba(224,175,104,0.12); border: 1px solid rgba(224,175,104,0.25);
+            color: #e0af68; font-weight: 700; font-size: 10px; border-radius: 8px; padding: 6px 14px;
+        }
+        .btn-fix:hover { background: rgba(224,175,104,0.2); }
+        .doctor-summary {
+            border-radius: 10px; padding: 9px 14px; font-size: 11px; margin-bottom: 8px;
+        }
+        .summary-warn { background: rgba(224,175,104,0.08); border: 1px solid rgba(224,175,104,0.18); color: #e0af68; }
+        .summary-ok { background: rgba(158,206,106,0.06); border: 1px solid rgba(158,206,106,0.15); color: #9ece6a; }
 
         /* === Sliders === */
         scale trough { background: #1a1b26; min-height: 6px; border-radius: 3px; }
