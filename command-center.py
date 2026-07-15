@@ -4376,8 +4376,12 @@ class App(Adw.Application):
         try:
             win = CommandCenter(self)
             win.present()
+            # GCC_START_PAGE marks a tooling/screenshot launch — maximise for a
+            # full, unoccluded capture and skip the first-run modal.
+            if os.environ.get("GCC_START_PAGE"):
+                win.maximize()
             # First launch without system integration → offer one-click setup.
-            if needs_setup():
+            elif needs_setup():
                 SetupDialog(win).present()
         except Exception:
             # If building the UI throws, print the traceback and quit so the
