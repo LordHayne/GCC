@@ -70,17 +70,20 @@ jobs:
       - name: Configure SSH for the AUR
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
           # Pin the AUR host key explicitly (all types — the real one is ED25519,
           # not RSA) so the connection never depends on accept-new writing it.
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -t ed25519,ecdsa,rsa aur.archlinux.org >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
           cat >> ~/.ssh/config <<'EOF'
           Host aur.archlinux.org
             User aur
             IdentityFile ~/.ssh/aur
             StrictHostKeyChecking accept-new
           EOF
+          chmod 600 ~/.ssh/config
 
       - name: Push to the AUR
         run: |
