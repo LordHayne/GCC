@@ -338,19 +338,37 @@ class GameDoctorPage(Gtk.Box):
 
     # What the scanner looks at, grouped for the empty-state preview.
     CHECK_GROUPS = [
-        ("GPU", ["NVIDIA driver", "GPU P-state", "ReBAR", "Coolbits"]),
-        ("CPU", ["Governor", "CCD / Game Mode"]),
+        ("System", ["Reboot / Kernel", "Vulkan", "vm.max_map_count", "Open Files"]),
+        ("GPU", ["NVIDIA Driver", "GPU P-State", "ReBAR", "Coolbits", "Modeset"]),
+        ("CPU", ["CPU Governor", "CCD / Game Mode"]),
         ("Gaming tools", ["GameMode", "gamescope", "GE-Proton"]),
-        ("Power & I/O", ["SATA link power", "Audio power save"]),
-        ("Session", ["Wayland / X11", "NVIDIA modprobe", "Monitor"]),
+        ("Power & I/O", ["SATA Link Power", "Audio Power Save"]),
+        ("Session", ["Wayland / X11", "NVIDIA Modprobe", "Monitor"]),
     ]
 
     def __init__(self, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
 
         self.scanning = False
+        self.last_checks = []          # what the current rows reflect
+        self._rows = {}                # check.name -> (msg_lbl, fix_btn or None)
 
-        # Info line + Run Full Scan
+        # Single source of truth for which checks have a one-click fix. Used both
+        # to decide whether a row shows a FIX button and to run it.
+        self._fixes = {
+            "CPU Governor":      self._fix_governor,
+            "CCD / Game Mode":   self._fix_game_mode,
+            "Audio Power Save":  self._fix_audio,
+            "SATA Link Power":   self._fix_sata,
+            "GameMode Config":   self._fix_gamemode_ini,
+            "NVIDIA Modprobe":   self._fix_modprobe,
+            "Coolbits / GPU-OC": self._fix_coolbits,
+            "vm.max_map_count":  self._fix_max_map_count,
+            "GameMode":          lambda: self._install_package("gamemode"),
+            "gamescope":         lambda: self._install_package("gamescope"),
+        }
+
+        # Info line + action buttons
         top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         top_bar.set_margin_start(24); top_bar.set_margin_end(24)
         top_bar.set_margin_top(16); top_bar.set_margin_bottom(8)
@@ -358,6 +376,19 @@ class GameDoctorPage(Gtk.Box):
         self.scan_status_lbl.add_css_class("game-meta"); self.scan_status_lbl.set_xalign(0)
         top_bar.append(self.scan_status_lbl)
         spacer = Gtk.Box(); spacer.set_hexpand(True); top_bar.append(spacer)
+
+        self.copy_btn = Gtk.Button(label="COPY REPORT")
+        self.copy_btn.add_css_class("btn-apply-sm")
+        self.copy_btn.connect("clicked", self.on_copy_clicked)
+        self.copy_btn.set_visible(False)
+        top_bar.append(self.copy_btn)
+
+        self.fix_all_btn = Gtk.Button(label="FIX ALL")
+        self.fix_all_btn.add_css_class("btn-fix")
+        self.fix_all_btn.connect("clicked", self.on_fix_all_clicked)
+        self.fix_all_btn.set_visible(False)
+        top_bar.append(self.fix_all_btn)
+
         self.scan_btn = Gtk.Button(label="RUN FULL SCAN")
         self.scan_btn.add_css_class("btn-apply-sm")
         self.scan_btn.connect("clicked", self.on_scan_clicked)
@@ -404,8 +435,8 @@ class GameDoctorPage(Gtk.Box):
         headline.set_markup("<span size='15000' weight='bold' color='#c0caf5'>Ready to check your system</span>")
         box.append(headline)
 
-        desc = Gtk.Label(label="15+ checks across your GPU, CPU, gaming tools and "
-                               "power settings — each with a one-click fix.")
+        desc = Gtk.Label(label="20 checks across your GPU, CPU, gaming tools, Proton "
+                               "and power settings — most with a one-click fix.")
         desc.add_css_class("page-subtitle")
         desc.set_wrap(True)
         desc.set_justify(Gtk.Justification.CENTER)
@@ -476,24 +507,41 @@ class GameDoctorPage(Gtk.Box):
             self.results_box.remove(child)
             child = next_child
 
+        self.last_checks = checks
+        self._rows = {}
+
+        crit = sum(1 for c in checks if c.status == "critical")
         ok = sum(1 for c in checks if c.status == "ok")
         warn = sum(1 for c in checks if c.status == "warning")
         info = sum(1 for c in checks if c.status == "info")
 
-        # Warnings first, then info, then ok — most actionable at the top.
-        order = {"warning": 0, "info": 1, "ok": 2}
-        for check in sorted(checks, key=lambda c: order.get(c.status, 3)):
+        # Critical first, then warnings, info, ok — most urgent at the top.
+        order = {"critical": 0, "warning": 1, "info": 2, "ok": 3}
+        for check in sorted(checks, key=lambda c: order.get(c.status, 4)):
             self.results_box.append(self._build_check_row(check))
 
         self.scan_status_lbl.set_label(f"{len(checks)} checks · scan took {took:.1f} s")
+        self.copy_btn.set_visible(True)
+        # FIX ALL only when there is something we can actually auto-fix.
+        fixable = [c for c in checks
+                   if c.status in ("warning", "critical") and c.name in self._fixes]
+        self.fix_all_btn.set_visible(bool(fixable))
+        self.fix_all_btn.set_sensitive(True)
+        self.fix_all_btn.set_label(f"FIX ALL ({len(fixable)})")
+
         self.summary_lbl.set_visible(True)
-        self.summary_lbl.set_css_classes(
-            ["doctor-summary", "summary-warn" if warn else "summary-ok"])
-        if warn:
+        if crit:
+            self.summary_lbl.set_css_classes(["doctor-summary", "summary-critical"])
+            self.summary_lbl.set_markup(
+                f"<b>{crit} critical issue{'s' if crit != 1 else ''}</b> — "
+                f"{warn} warning{'s' if warn != 1 else ''}, {ok} passed")
+        elif warn:
+            self.summary_lbl.set_css_classes(["doctor-summary", "summary-warn"])
             self.summary_lbl.set_markup(
                 f"<b>{warn} warning{'s' if warn != 1 else ''} found</b> — "
                 f"{ok} checks passed")
         else:
+            self.summary_lbl.set_css_classes(["doctor-summary", "summary-ok"])
             self.summary_lbl.set_markup(f"<b>All good</b> — {ok} checks passed, {info} info")
 
     def _build_check_row(self, check):
@@ -514,21 +562,26 @@ class GameDoctorPage(Gtk.Box):
         name_lbl.add_css_class("doctor-name")
         text_box.append(name_lbl)
         msg = check.message
-        if check.fix_message and check.status == "warning":
+        if check.fix_message and check.status in ("warning", "critical"):
             msg = f"{check.message} — {check.fix_message}"
         msg_lbl = Gtk.Label(label=msg); msg_lbl.set_xalign(0); msg_lbl.set_wrap(True)
         msg_lbl.add_css_class("doctor-msg")
         text_box.append(msg_lbl)
         row.append(text_box)
 
-        if check.status == "warning" and check.fix_message:
+        # A FIX button appears only when we genuinely have a one-click fix. A
+        # critical item like a pending reboot has no software fix, so it shows
+        # its instruction inline instead of a button that does nothing.
+        fix_btn = None
+        if check.status in ("warning", "critical") and check.name in self._fixes:
             fix_btn = Gtk.Button(label="FIX")
             fix_btn.add_css_class("btn-fix")
             fix_btn.set_valign(Gtk.Align.CENTER)
             fix_btn._msg_lbl = msg_lbl
-            fix_btn.connect("clicked", self.on_fix_clicked, check)
+            fix_btn.connect("clicked", lambda b, c=check: self._apply_fix(c, b))
             row.append(fix_btn)
 
+        self._rows[check.name] = (msg_lbl, fix_btn)
         return row
 
     # --- individual fixes: each returns (ok, message) and never lies ---
@@ -616,22 +669,19 @@ nv_powermizer_mode=1
         err = (r.stderr or "").strip().splitlines()
         return False, err[-1] if err else f"pacman failed (exit {r.returncode})"
 
-    def on_fix_clicked(self, btn, check):
-        """Run the fix for this check in a worker thread and report what happened."""
-        fixes = {
-            "CPU Governor":     self._fix_governor,
-            "CCD / Game Mode":  self._fix_game_mode,
-            "Audio Power Save": self._fix_audio,
-            "SATA Link Power":  self._fix_sata,
-            "GameMode Config":  self._fix_gamemode_ini,
-            "NVIDIA Modprobe":  self._fix_modprobe,
-            "Coolbits / GPU-OC": self._fix_coolbits,
-            "GameMode":         lambda: self._install_package("gamemode"),
-            "gamescope":        lambda: self._install_package("gamescope"),
-        }
-        fix = fixes.get(check.name)
+    def _fix_max_map_count(self):
+        return CCDController.etc_helper("maxmapcount", "DONE_MAXMAPCOUNT",
+                                        "vm.max_map_count raised to 2147483642")
+
+    def _apply_fix(self, check, btn, on_done=None):
+        """Run one check's fix in a worker thread and report what happened.
+        on_done(ok) fires on the main thread once finished — used by FIX ALL to
+        chain the next fix."""
+        fix = self._fixes.get(check.name)
         if fix is None:
             btn._msg_lbl.set_label("No automatic fix for this check yet")
+            if on_done:
+                on_done(False)
             return
 
         btn.set_label("Applying...")
@@ -653,11 +703,58 @@ nv_powermizer_mode=1
                     # Re-run this one check so the row reflects reality rather
                     # than our claim about it.
                     check.run()
+                if on_done:
+                    on_done(ok)
                 return False
 
             GLib.idle_add(update_ui)
 
         threading.Thread(target=apply_in_thread, daemon=True).start()
+
+    def on_fix_all_clicked(self, btn):
+        """Apply every auto-fixable warning/critical in turn. Runs them one at a
+        time so pkexec prompts don't stack, and stops cleanly at the end."""
+        queue = [c for c in self.last_checks
+                 if c.status in ("warning", "critical") and c.name in self._fixes]
+        if not queue:
+            return
+        btn.set_sensitive(False)
+        btn.set_label("Fixing…")
+        self.scan_btn.set_sensitive(False)
+
+        def run_next(index):
+            if index >= len(queue):
+                btn.set_label("FIX ALL — done")
+                self.scan_btn.set_sensitive(True)
+                return
+            check = queue[index]
+            row = self._rows.get(check.name)
+            if not row or row[1] is None:      # no button for this row
+                run_next(index + 1)
+                return
+            _msg_lbl, fix_btn = row
+            self._apply_fix(check, fix_btn,
+                            on_done=lambda _ok, i=index: run_next(i + 1))
+
+        run_next(0)
+
+    def on_copy_clicked(self, btn):
+        """Copy a plain-text report to the clipboard — handy for support threads
+        and Reddit help posts."""
+        icon = {"critical": "[CRIT]", "warning": "[WARN]", "info": "[INFO]", "ok": "[ OK ]"}
+        order = {"critical": 0, "warning": 1, "info": 2, "ok": 3}
+        lines = ["Gaming Command Center — System Doctor report", ""]
+        for c in sorted(self.last_checks, key=lambda c: order.get(c.status, 4)):
+            lines.append(f"{icon.get(c.status, '[ ?? ]')} {c.name}: {c.message}")
+            if c.fix_message and c.status in ("warning", "critical"):
+                lines.append(f"        fix: {c.fix_message}")
+        text = "\n".join(lines)
+        try:
+            self.get_clipboard().set(text)
+            btn.set_label("COPIED ✓")
+            GLib.timeout_add(1800, lambda: (btn.set_label("COPY REPORT"), False)[1])
+        except Exception:
+            btn.set_label("COPY FAILED")
 
 
 # ============================================================
@@ -705,6 +802,20 @@ class GamesPage(Gtk.Box):
         self.append(scroll)
 
         self.rescan()
+        self._check_db_update()
+
+    def _check_db_update(self):
+        """Refresh the fix database from GitHub in the background (throttled to
+        once a day). If new fixes arrived, reload and re-render silently."""
+        def work():
+            if game_db.maybe_update() != "updated":
+                return
+            def apply():
+                self.db, self.db_err = game_db.load_games()
+                self.rescan()
+                return False
+            GLib.idle_add(apply)
+        threading.Thread(target=work, daemon=True).start()
 
     # ---------- current system, for `when:` filtering ----------
     def _gpu_vendor(self):
@@ -1365,10 +1476,12 @@ class CommandCenter(Adw.ApplicationWindow):
         .doctor-row-ok { background: rgba(158,206,106,0.03); border-color: rgba(158,206,106,0.08); }
         .doctor-row-warning { background: rgba(224,175,104,0.05); border-color: rgba(224,175,104,0.14); }
         .doctor-row-info { background: rgba(122,162,247,0.03); border-color: rgba(122,162,247,0.08); }
+        .doctor-row-critical { background: rgba(247,118,142,0.07); border-color: rgba(247,118,142,0.28); }
         .doctor-dot { border-radius: 50%; }
         .dot-ok { background: #9ece6a; box-shadow: 0 0 6px #9ece6a; }
         .dot-warning { background: #e0af68; box-shadow: 0 0 6px #e0af68; }
         .dot-info { background: #7aa2f7; box-shadow: 0 0 6px #7aa2f7; }
+        .dot-critical { background: #f7768e; box-shadow: 0 0 8px #f7768e; }
         .doctor-name { color: #c0caf5; font-weight: 700; font-size: 12px; }
         .doctor-msg { color: #9aa5ce; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
         .btn-fix {
@@ -1381,6 +1494,7 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         .summary-warn { background: rgba(224,175,104,0.08); border: 1px solid rgba(224,175,104,0.18); color: #e0af68; }
         .summary-ok { background: rgba(158,206,106,0.06); border: 1px solid rgba(158,206,106,0.15); color: #9ece6a; }
+        .summary-critical { background: rgba(247,118,142,0.1); border: 1px solid rgba(247,118,142,0.3); color: #f7768e; }
 
         /* Settings grouped cards */
         .settings-group {

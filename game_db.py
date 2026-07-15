@@ -16,6 +16,9 @@ Anything it does not recognise is dropped, not executed — the database can nev
 carry an arbitrary shell command into the app.
 """
 import os
+import time
+import tempfile
+import urllib.request
 
 try:
     import yaml
@@ -23,7 +26,20 @@ try:
 except ImportError:
     HAVE_YAML = False
 
+# The database bundled with the app (source checkout or AppImage).
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "games.yaml")
+
+# Auto-update: fetch the community-maintained database straight from main, so a
+# fix merged today reaches users tomorrow — independent of app releases. The
+# loader below is still the trust boundary (whitelisted fix types only), so a
+# downloaded database can never carry an executable payload.
+DB_URL = "https://raw.githubusercontent.com/LordHayne/GCC/main/games.yaml"
+CACHE_DIR = os.path.join(
+    os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+    "gaming-command-center")
+CACHE_DB = os.path.join(CACHE_DIR, "games.yaml")
+_STAMP = os.path.join(CACHE_DIR, "db-last-check")
+UPDATE_INTERVAL = 24 * 3600   # at most one network check per day
 
 # The only fix types the app will ever act on. A fix with any other type is
 # discarded on load. `tool_action` is further constrained below.
@@ -149,14 +165,88 @@ def _parse_issue(raw):
     return Issue(symptom, cause, fix, when=_parse_when(raw.get("when")))
 
 
-def load_games(path=DB_PATH):
+def _valid_db_text(text):
+    """True if `text` parses as a games.yaml with at least a `games:` list.
+    Used to reject a corrupt or truncated download before it touches the cache."""
+    if not HAVE_YAML:
+        return False
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    return isinstance(data, dict) and isinstance(data.get("games"), list)
+
+
+def resolve_db_path():
+    """The freshest usable database: the downloaded cache if present and valid,
+    else the copy bundled with the app. main's games.yaml is always a superset of
+    any release's bundled copy, so preferring the cache is always correct."""
+    try:
+        if os.path.isfile(CACHE_DB):
+            with open(CACHE_DB, encoding="utf-8") as f:
+                if _valid_db_text(f.read()):
+                    return CACHE_DB
+    except OSError:
+        pass
+    return DB_PATH
+
+
+def _throttled():
+    try:
+        return (time.time() - os.path.getmtime(_STAMP)) < UPDATE_INTERVAL
+    except OSError:
+        return False
+
+
+def maybe_update(force=False, timeout=10):
+    """Refresh the cached database from GitHub, at most once a day. Returns:
+    'updated' (new content cached), 'current' (already latest), 'skipped'
+    (throttled / no YAML), or 'offline: <reason>'. Never raises — the app keeps
+    working on the cached or bundled copy whatever happens.
+
+    The stamp is only written on a successful fetch, so an offline first run
+    retries on the next launch rather than going quiet for a day."""
+    if not HAVE_YAML:
+        return "skipped"
+    if not force and _throttled():
+        return "skipped"
+    try:
+        req = urllib.request.Request(DB_URL, headers={"User-Agent": "gaming-command-center"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            text = r.read().decode("utf-8", "replace")
+    except Exception as e:                      # network / URL / timeout
+        return f"offline: {e}"
+    if not _valid_db_text(text):
+        return "offline: remote database is not valid YAML"
+    old = ""
+    try:
+        with open(CACHE_DB, encoding="utf-8") as f:
+            old = f.read()
+    except OSError:
+        pass
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=CACHE_DIR, prefix=".games-", suffix=".yaml")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, CACHE_DB)               # atomic swap
+        open(_STAMP, "w").close()               # record the successful check
+    except OSError as e:
+        return f"offline: {e}"
+    return "updated" if text != old else "current"
+
+
+def load_games(path=None):
     """Parse games.yaml into {steam_id: Game}. Returns (games, error).
 
-    Never raises for bad data — malformed entries are skipped so one bad
-    community PR cannot break the whole database for everyone.
+    With no path, loads the freshest available copy (downloaded cache or the
+    bundled database). Never raises for bad data — malformed entries are skipped
+    so one bad community PR cannot break the whole database for everyone.
     """
     if not HAVE_YAML:
         return {}, "PyYAML not installed (pacman -S python-yaml)"
+    if path is None:
+        path = resolve_db_path()
     try:
         with open(path) as f:
             data = yaml.safe_load(f)
