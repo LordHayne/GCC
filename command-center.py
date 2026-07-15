@@ -805,7 +805,11 @@ class GamesPage(Gtk.Box):
         header.append(self.subtitle)
         spacer = Gtk.Box(); spacer.set_hexpand(True); header.append(spacer)
         self.search = Gtk.SearchEntry()
-        self.search.set_placeholder_text("Search games…")
+        # Gtk.SearchEntry.set_placeholder_text is GTK 4.10+; the AppImage ships
+        # GTK 4.6 (Ubuntu 22.04), where it's absent and would crash on launch.
+        # Degrade gracefully — 4.6 shows the default search affordance.
+        if hasattr(self.search, "set_placeholder_text"):
+            self.search.set_placeholder_text("Search games…")
         self.search.set_max_width_chars(22)
         self.search.connect("search-changed", self._on_search)
         header.append(self.search)
