@@ -87,7 +87,25 @@ cd GCC
 ./install.sh
 ```
 
-Then launch "Gaming Command Center" from your app menu.
+That's it. The installer detects your distro, installs the GUI dependencies it
+needs (asking once before it touches anything), sets up the launcher, icon and
+permissions, and verifies the app can actually start before it says "done".
+Then launch **Gaming Command Center** from your app menu.
+
+### Supported systems
+
+The installer auto-installs dependencies on the three main distro families and
+their derivatives:
+
+| Family | Package manager | Covers (non-exhaustive) |
+|--------|-----------------|--------------------------|
+| **Arch** | `pacman` | Arch, CachyOS, Manjaro, EndeavourOS, Garuda, Artix |
+| **Debian** | `apt` | Debian, Ubuntu, Linux Mint, Pop!\_OS, elementary, Kali |
+| **Fedora** | `dnf` | Fedora, Nobara, RHEL, CentOS, Rocky, AlmaLinux |
+
+On any other distro the app still runs — the installer just prints the exact
+packages to install by hand (PyGObject, GTK4, libadwaita, PyYAML) instead of
+doing it for you.
 
 ### Run (without install)
 
@@ -95,14 +113,20 @@ Then launch "Gaming Command Center" from your app menu.
 python3 command-center.py
 ```
 
+Needs the GUI dependencies below already present. If you're not sure, just run
+`./install.sh` — it only installs what's missing.
+
 ### Requirements
 
-- Python 3 with PyGObject (GTK4 + libadwaita)
-- `sensors` (lm_sensors) for CPU temp
-- `nvidia-smi` + `nvidia-settings` for GPU (NVIDIA)
-- `pkexec` (polkit) for root operations
-- AMD Ryzen CPU with 2+ CCDs (for Game Mode)
-- NVIDIA GPU with Coolbits enabled (for OC)
+The installer handles the first two automatically; the rest are feature-specific.
+
+- **Python 3 + PyGObject (GTK4 + libadwaita)** — the app itself *(installed for you)*
+- **PyYAML** — for the per-game fix database *(installed for you)*
+- `sensors` (lm_sensors) — CPU temperature
+- `nvidia-smi` + `nvidia-settings` — GPU monitoring/OC (NVIDIA)
+- `pkexec` (polkit) — the one-time `/etc` setup fixes
+- AMD Ryzen CPU with 2+ CCDs — for Game Mode / CCD parking
+- NVIDIA GPU with Coolbits enabled — for GPU overclocking
 
 ### Permissions
 
