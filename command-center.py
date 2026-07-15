@@ -3003,11 +3003,15 @@ class CommandCenter(Adw.ApplicationWindow):
             self.gm_btn.set_sensitive(False)
             self.gm_btn.set_label("Please wait...")
 
+        gpu_max = getattr(self.gpu, "max_clock_gr", 0)   # NVIDIA only; 0 otherwise
+
         def run_in_thread():
             if active:
                 ok, err = CCDController.unpark_all()
                 if ok:
                     self._set_power_profile("balanced")   # back to the normal profile
+                if gpu_max:
+                    CCDController.gpu_unlock()             # let the GPU clock idle again
                 msg = "All cores restored" if ok else err
             else:
                 # Everything for gaming, in this ORDER: set the CPU performance
@@ -3017,6 +3021,10 @@ class CommandCenter(Adw.ApplicationWindow):
                 self._set_power_profile("performance")
                 CCDController.helper("audio-off", "DONE_AUDIO", "")
                 CCDController.helper("sata-off", "DONE_SATA", "")
+                if gpu_max:
+                    # Pin the GPU at its max graphics clock — max performance and
+                    # a fix for the NVIDIA P8 idle bug (clock stuck low under load).
+                    CCDController.gpu_lock(gpu_max, gpu_max)
                 GLib.idle_add(lambda: self._sync_power_switch(False))
                 ok, err = CCDController.park(plan)
                 msg = (f"Game Mode on — CCD{keep} kept, {len(plan)} threads parked"
