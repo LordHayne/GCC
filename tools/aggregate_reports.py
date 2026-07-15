@@ -42,7 +42,13 @@ from report_stats import fix_key   # noqa: E402
 
 REPO = os.environ.get("GITHUB_REPOSITORY", "LordHayne/GCC")
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
-FORM_CSV_URL = os.environ.get("FORM_CSV_URL", "").strip()
+# The published-to-web CSV of the Google Form responses (the no-account channel).
+# Baked in so the aggregator works out of the box; override with the FORM_CSV_URL
+# env/repo-variable if the form is ever re-created.
+DEFAULT_FORM_CSV = ("https://docs.google.com/spreadsheets/d/e/"
+                    "2PACX-1vTPZaAtqFOkz6E90mBgcTaeCvsgOFyUD_9_fzgJ_VsBzbo05XEdwB7yGB"
+                    "EZiHDdQaJ6DWF3y3FffKEq/pub?output=csv")
+FORM_CSV_URL = os.environ.get("FORM_CSV_URL", "").strip() or DEFAULT_FORM_CSV
 OUT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "reports.json")
 

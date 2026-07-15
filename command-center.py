@@ -769,8 +769,20 @@ class GamesPage(Gtk.Box):
     #   FORM_FIELDS      — maps our data keys to the form's entry.NNN field ids.
     # Until BOTH are set, the share dialog falls back to Copy report, so the
     # feature is never broken while the Form is being created.
-    FORM_PREFILL_URL = ""
-    FORM_FIELDS = {}   # e.g. {"game": "entry.111", "appid": "entry.222", ...}
+    FORM_PREFILL_URL = ("https://docs.google.com/forms/d/e/"
+                        "1FAIpQLSfrH4faZ5eQ1T4VP1WmwS1w0afjTKfQ_V4bc4NO3oYAitRUZw/"
+                        "viewform?usp=pp_url")
+    FORM_FIELDS = {
+        "game":       "entry.1117300195",
+        "appid":      "entry.871360158",
+        "fix":        "entry.1999642819",
+        "result":     "entry.711869093",
+        "gpu":        "entry.742209682",
+        "cpu":        "entry.1717487472",
+        "session":    "entry.954762000",
+        "distro":     "entry.723557649",
+        "appversion": "entry.1883040327",
+    }
 
     def __init__(self, win, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
