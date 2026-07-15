@@ -1038,10 +1038,10 @@ class CommandCenter(Adw.ApplicationWindow):
 
         /* === Benchmark === */
         .bench-group {
-            background: #1e1f2e; border-radius: 10px; padding: 10px 12px;
-            border: 1px solid rgba(255,255,255,0.05);
+            background: #16161e; border-radius: 14px; padding: 16px;
+            border: 1px solid rgba(255,255,255,0.06);
         }
-        .bench-ccd-name { color: #c0caf5; font-weight: bold; font-size: 14px; }
+        .bench-ccd-name { color: #c0caf5; font-weight: 700; font-size: 14px; }
         .bench-ccd-avg { color: #c0caf5; }
         .bench-badge { color: #1a1b26; }
         .bench-badge-best {
@@ -1780,26 +1780,24 @@ class CommandCenter(Adw.ApplicationWindow):
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        content.set_margin_start(16)
-        content.set_margin_end(16)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        content.set_margin_start(24)
+        content.set_margin_end(24)
         content.set_margin_top(16)
         content.set_margin_bottom(16)
 
-        # Run button
-        self.bench_btn = Gtk.Button(label="Run CCD Benchmark")
-        self.bench_btn.add_css_class("btn-bench")
-        self.bench_btn.set_halign(Gtk.Align.START)
+        # Header row: status/info (left) + run button (right)
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.bench_status = Gtk.Label(label="silicon lottery test · sustained boost per core")
+        self.bench_status.set_xalign(0); self.bench_status.set_wrap(True)
+        self.bench_status.add_css_class("game-meta")
+        self.bench_status.set_hexpand(True)
+        head.append(self.bench_status)
+        self.bench_btn = Gtk.Button(label="RUN BENCHMARK")
+        self.bench_btn.add_css_class("btn-apply-sm")
         self.bench_btn.connect("clicked", self.on_benchmark)
-        content.append(self.bench_btn)
-
-        # One-line status while running (which core, governor note)
-        self.bench_status = Gtk.Label(label="")
-        self.bench_status.set_halign(Gtk.Align.START)
-        self.bench_status.set_xalign(0)
-        self.bench_status.set_wrap(True)
-        self.bench_status.set_margin_top(8)
-        content.append(self.bench_status)
+        head.append(self.bench_btn)
+        content.append(head)
 
         # Overall progress
         self.bench_progress = Gtk.ProgressBar()
@@ -1940,14 +1938,20 @@ class CommandCenter(Adw.ApplicationWindow):
         self.bench_rows = {}
         self.bench_ccd_hdr = {}
 
+        # CCD groups sit side by side, like the design.
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        hbox.set_homogeneous(True)
+        self.bench_results.append(hbox)
+
         for ccd_id in self.topo.get_all_ccd_ids():
             cores = [c for c in self.topo.get_physical_cores(ccd_id)
                      if self.topo.is_cpu_online(c)]
             if not cores:
                 continue
 
-            group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             group.add_css_class("bench-group")
+            group.set_valign(Gtk.Align.START)
 
             hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             name = Gtk.Label(label=f"CCD{ccd_id}")
@@ -1964,10 +1968,10 @@ class CommandCenter(Adw.ApplicationWindow):
             group.append(hdr)
             self.bench_ccd_hdr[ccd_id] = {"avg": avg, "badge": badge}
 
-            for cpu in cores:
+            for i, cpu in enumerate(cores):
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                lbl = Gtk.Label(label=f"CPU {cpu}")
-                lbl.set_size_request(56, -1)
+                lbl = Gtk.Label(label=f"T{i}")
+                lbl.set_size_request(34, -1)
                 lbl.set_xalign(0)
                 lbl.add_css_class("bench-cpu-label")
                 row.append(lbl)
@@ -1990,7 +1994,7 @@ class CommandCenter(Adw.ApplicationWindow):
                 group.append(row)
                 self.bench_rows[cpu] = {"bar": bar, "val": val, "label": lbl}
 
-            self.bench_results.append(group)
+            hbox.append(group)
 
     # ============================================================
     # Settings Page
@@ -2694,7 +2698,7 @@ class CommandCenter(Adw.ApplicationWindow):
 
         def abort(message):
             self.benching = False
-            self.bench_btn.set_label("Run CCD Benchmark")
+            self.bench_btn.set_label("RUN BENCHMARK")
             self.bench_btn.set_sensitive(True)
             self.bench_progress.set_visible(False)
             self.bench_status.set_markup(f"<span color='#f7768e'>{message}</span>")
@@ -2719,7 +2723,7 @@ class CommandCenter(Adw.ApplicationWindow):
             return
 
         self.benching = True
-        self.bench_btn.set_label("Benchmark running...")
+        self.bench_btn.set_label("RUNNING…")
         self.bench_btn.set_sensitive(False)
         self.bench_verdict.set_label("")
         self.bench_progress.set_visible(True)
@@ -2796,7 +2800,7 @@ class CommandCenter(Adw.ApplicationWindow):
 
     def _finish_benchmark(self, all_results, forced, prev_gov):
         self.benching = False
-        self.bench_btn.set_label("Run CCD Benchmark")
+        self.bench_btn.set_label("RUN BENCHMARK")
         self.bench_btn.set_sensitive(True)
         self.bench_progress.set_visible(False)
         self._show_bench(all_results, forced, prev_gov)
