@@ -148,13 +148,23 @@ exec "\$HERE/usr/bin/python3" "\$HERE/usr/share/$APPNAME/command-center.py" "\$@
 APPRUN
 chmod +x "$APPDIR/AppRun"
 
-banner "Packaging"
-OUTFILE="$OUT/Gaming_Command_Center-x86_64.AppImage"
-# Write to a temp name and rename into place: if a previous AppImage is still
-# running/mounted on the host, the target is "Text file busy" for a direct
-# overwrite, but rename() over an in-use file always succeeds.
-TMPOUT="$OUT/.Gaming_Command_Center-x86_64.AppImage.$$"
-ARCH=x86_64 "$TOOLS/appimagetool" "$APPDIR" "$TMPOUT" || die "appimagetool failed"
-mv -f "$TMPOUT" "$OUTFILE" || die "could not move AppImage into place"
+banner "Packaging (with zsync update information)"
+OUTNAME="Gaming_Command_Center-x86_64.AppImage"
+# Embed update information so AppImageUpdate can do in-place delta updates from
+# the GitHub 'latest' release; appimagetool also emits the matching .zsync file.
+UPDINFO="gh-releases-zsync|LordHayne|GCC|latest|$OUTNAME.zsync"
+# Build into a fresh staging dir (never "Text file busy"), then rename both
+# artifacts into $OUT — rename() replaces even a running/mounted AppImage.
+STAGE="$BUILD/pkg"; rm -rf "$STAGE"; mkdir -p "$STAGE"
+# Run from inside $STAGE so the generated .zsync lands next to the AppImage
+# (appimagetool writes the zsync into the current directory, not next to -o).
+( cd "$STAGE" && ARCH=x86_64 "$TOOLS/appimagetool" -u "$UPDINFO" "$APPDIR" "$OUTNAME" ) || die "appimagetool failed"
+mv -f "$STAGE/$OUTNAME" "$OUT/$OUTNAME" || die "could not move AppImage into place"
+if [ -f "$STAGE/$OUTNAME.zsync" ]; then
+    mv -f "$STAGE/$OUTNAME.zsync" "$OUT/$OUTNAME.zsync"
+    echo "  + $OUTNAME.zsync (delta-update metadata)"
+else
+    echo "  ⚠️ no .zsync generated (self-update metadata missing)"
+fi
 echo
-echo "✅ Built: $OUTFILE"
+echo "✅ Built: $OUT/$OUTNAME"
