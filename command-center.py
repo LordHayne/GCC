@@ -341,7 +341,7 @@ class GameDoctorPage(Gtk.Box):
     CHECK_GROUPS = [
         ("System", ["Reboot / Kernel", "Vulkan", "vm.max_map_count", "Open Files"]),
         ("GPU", ["NVIDIA Driver", "GPU P-State", "ReBAR", "Coolbits", "Modeset"]),
-        ("CPU", ["CPU Governor", "CCD / Game Mode"]),
+        ("CPU", ["CPU Governor", "CPU Boost", "CCD / Game Mode"]),
         ("Gaming tools", ["GameMode", "gamescope", "GE-Proton"]),
         ("Power & I/O", ["SATA Link Power", "Audio Power Save"]),
         ("Session", ["Wayland / X11", "NVIDIA Modprobe", "Monitor"]),
@@ -1188,6 +1188,11 @@ class CommandCenter(Adw.ApplicationWindow):
             background: rgba(158,206,106,0.06); border: 1px solid rgba(158,206,106,0.2);
             border-radius: 11px; padding: 12px;
         }
+        .side-update {
+            background: rgba(224,175,104,0.1); border: 1px solid rgba(224,175,104,0.35);
+            border-radius: 11px; padding: 9px 12px;
+        }
+        .side-update:hover { background: rgba(224,175,104,0.18); }
         .side-hero-gaming {
             background: linear-gradient(135deg, rgba(224,175,104,0.1), rgba(247,118,142,0.1));
             border: 1px solid rgba(224,175,104,0.3);
@@ -1756,6 +1761,18 @@ class CommandCenter(Adw.ApplicationWindow):
         sidebar.append(nav_box)
 
         spacer = Gtk.Box(); spacer.set_vexpand(True); sidebar.append(spacer)
+
+        # Update badge — hidden until the release check finds a newer version;
+        # clicking jumps to Settings › About where the update action lives.
+        self.sidebar_update_btn = Gtk.Button()
+        self.sidebar_update_btn.add_css_class("side-update")
+        self.sidebar_update_btn.set_visible(False)
+        self.sidebar_update_btn.set_margin_start(12); self.sidebar_update_btn.set_margin_end(12)
+        self.sidebar_update_btn.set_margin_bottom(10)
+        self.sidebar_update_btn.connect("clicked", lambda *_: self.switch_page("settings"))
+        self.sidebar_update_lbl = Gtk.Label(); self.sidebar_update_lbl.set_xalign(0)
+        self.sidebar_update_btn.set_child(self.sidebar_update_lbl)
+        sidebar.append(self.sidebar_update_btn)
 
         # Hero status box (mode + detail), like the design's side widget
         hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
@@ -2415,6 +2432,18 @@ class CommandCenter(Adw.ApplicationWindow):
         threading.Thread(target=work, daemon=True).start()
 
     def _render_update_status(self):
+        info = getattr(self, "update_info", None)
+
+        # Sidebar badge (may exist before the About box does, and vice-versa).
+        badge = getattr(self, "sidebar_update_btn", None)
+        if badge is not None:
+            if info and info.get("available"):
+                self.sidebar_update_lbl.set_markup(
+                    f"<span size='9500' weight='bold' color='#e0af68'>⬆ Update available</span>")
+                badge.set_visible(True)
+            else:
+                badge.set_visible(False)
+
         box = getattr(self, "update_box", None)
         if box is None:
             return
@@ -2422,7 +2451,6 @@ class CommandCenter(Adw.ApplicationWindow):
         while child:
             nxt = child.get_next_sibling(); box.remove(child); child = nxt
 
-        info = getattr(self, "update_info", None)
         if not info:
             return   # not checked yet / offline — show nothing
         if not info["available"]:
@@ -2446,15 +2474,43 @@ class CommandCenter(Adw.ApplicationWindow):
             btn.connect("clicked", self._on_git_update)
             box.append(btn); box.append(self._update_result)
         elif info["channel"] == "appimage":
-            link = Gtk.LinkButton.new_with_label(app_update.DOWNLOAD_URL, f"Download {latest}")
-            link.set_halign(Gtk.Align.START); box.append(link)
-            hint = Gtk.Label(label="Then replace your current .AppImage with the download.")
-            hint.add_css_class("info-card-sub"); hint.set_xalign(0); box.append(hint)
+            if app_update.appimage_update_tool() and os.environ.get("APPIMAGE"):
+                btn = Gtk.Button(label="Update now (delta)")
+                btn.add_css_class("btn-apply"); btn.set_halign(Gtk.Align.START)
+                self._update_result = Gtk.Label(); self._update_result.set_xalign(0)
+                self._update_result.add_css_class("info-card-sub")
+                btn.connect("clicked", self._on_appimage_update)
+                box.append(btn); box.append(self._update_result)
+            else:
+                link = Gtk.LinkButton.new_with_label(app_update.DOWNLOAD_URL, f"Download {latest}")
+                link.set_halign(Gtk.Align.START); box.append(link)
+                hint = Gtk.Label(label="Then replace your current .AppImage. "
+                                       "(Install AppImageUpdate for one-click delta updates.)")
+                hint.add_css_class("info-card-sub"); hint.set_xalign(0); box.append(hint)
         else:  # managed (AUR / distro package)
             lbl = Gtk.Label(label="Update via your package manager, or grab it from Releases:")
             lbl.add_css_class("info-card-sub"); lbl.set_xalign(0); box.append(lbl)
             link = Gtk.LinkButton.new_with_label(app_update.RELEASES_PAGE, "Releases")
             link.set_halign(Gtk.Align.START); box.append(link)
+
+    def _on_appimage_update(self, btn):
+        btn.set_sensitive(False); btn.set_label("Updating…")
+        self._update_result.set_text("")
+        appimg = os.environ.get("APPIMAGE")
+        def work():
+            ok, msg = app_update.run_appimage_update(appimg)
+            def done():
+                btn.set_label("Update now (delta)")
+                btn.set_sensitive(not ok)
+                if ok:
+                    self._update_result.set_markup(
+                        "<span color='#9ece6a'>✓ Updated — restart to apply</span>")
+                else:
+                    self._update_result.set_markup(
+                        f"<span color='#f7768e'>{GLib.markup_escape_text(msg)}</span>")
+                return False
+            GLib.idle_add(done)
+        threading.Thread(target=work, daemon=True).start()
 
     def _on_git_update(self, btn):
         btn.set_sensitive(False); btn.set_label("Updating…")
