@@ -820,12 +820,12 @@ class GamesPage(Gtk.Box):
         self.append(header)
         self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
-        # Ready-to-Play banner: the whole library at a glance, as a traffic light.
-        # Each segment is a filter — the red one is the point of the feature, so a
-        # switcher learns "these won't run" before wasting an evening on them.
-        self._play_filter = None          # None | "play" | "fix" | "broken"
-        self._play_state = {}             # appid -> state, refined live by ProtonDB
-        self.ready_banner = self._build_ready_banner()
+        # View switcher: the page defaults to YOUR installed library; two extra
+        # tabs opt into "won't run" blockers you don't own and other DB games
+        # with fixes. Keeps advisory (non-installed) games out of the default view.
+        self._view = "installed"          # "installed" | "wontrun" | "morefixes"
+        self._view_counts = {"installed": 0, "wontrun": 0, "morefixes": 0}
+        self.ready_banner = self._build_view_banner()
         self.append(self.ready_banner)
 
         scroll = Gtk.ScrolledWindow()
@@ -843,21 +843,21 @@ class GamesPage(Gtk.Box):
         self.rescan()
         self._check_db_update()
 
-    # ---------- Ready-to-Play traffic light ----------
-    # Buckets, in display order. Each: key, emoji, short caption, css accent.
-    PLAY_SEGMENTS = [
-        ("play",    "✅", "run fine",  "seg-play"),
-        ("fix",     "⚠️", "need a fix", "seg-fix"),
-        ("broken",  "⛔", "won't run",  "seg-broken"),
+    # ---------- View switcher ----------
+    # Tabs, in display order. Each: key, emoji, caption, css accent.
+    VIEW_TABS = [
+        ("installed", "🎮", "installed",     "seg-play"),
+        ("wontrun",   "⛔", "won't run",     "seg-broken"),
+        ("morefixes", "🔧", "more w/ fixes", "seg-fix"),
     ]
 
-    def _build_ready_banner(self):
+    def _build_view_banner(self):
         wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         wrap.set_margin_start(16); wrap.set_margin_end(16)
         wrap.set_margin_top(12); wrap.set_margin_bottom(2)
         self._seg_widgets = {}     # key -> (button, count_label, caption_label)
 
-        for key, emoji, caption, accent in self.PLAY_SEGMENTS:
+        for key, emoji, caption, accent in self.VIEW_TABS:
             btn = Gtk.Button(); btn.add_css_class("play-seg"); btn.add_css_class(accent)
             btn.set_hexpand(True)
             inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -866,47 +866,39 @@ class GamesPage(Gtk.Box):
             cap = Gtk.Label(label=f"{emoji}  {caption}"); cap.add_css_class("seg-cap")
             inner.append(num); inner.append(cap)
             btn.set_child(inner)
-            btn.connect("clicked", self._on_segment_clicked, key)
+            btn.connect("clicked", self._on_view_clicked, key)
             self._seg_widgets[key] = (btn, num, cap)
             wrap.append(btn)
-
-        self._all_btn = Gtk.Button(label="All"); self._all_btn.add_css_class("play-seg")
-        self._all_btn.add_css_class("seg-all")
-        self._all_btn.connect("clicked", self._on_segment_clicked, None)
-        wrap.append(self._all_btn)
         return wrap
 
-    def _on_segment_clicked(self, _btn, key):
-        # A second click on the active segment clears the filter (toggle).
-        self._play_filter = None if self._play_filter == key else key
-        self._sync_segment_active()
-        self._apply_search()
+    def _on_view_clicked(self, _btn, key):
+        # A view is always selected (no toggle-off) — the default is "installed".
+        if self._view != key:
+            self._view = key
+            self._sync_view_active()
+            self._apply_search()
 
-    def _sync_segment_active(self):
+    def _sync_view_active(self):
         for key, (btn, _n, _c) in self._seg_widgets.items():
             btn.set_css_classes([c for c in btn.get_css_classes() if c != "seg-active"])
-            if self._play_filter == key:
+            if self._view == key:
                 btn.add_css_class("seg-active")
-        self._all_btn.set_css_classes(
-            [c for c in self._all_btn.get_css_classes() if c != "seg-active"])
-        if self._play_filter is None:
-            self._all_btn.add_css_class("seg-active")
 
-    def _update_ready_banner(self):
-        """Recount the traffic light from the live per-game state and refresh the
-        segment labels. Called after a rescan and again as ProtonDB tiers land."""
-        counts = {"play": 0, "fix": 0, "broken": 0, "unknown": 0}
-        for st in self._play_state.values():
-            counts[st] = counts.get(st, 0) + 1
-        for key, (_btn, num, _cap) in self._seg_widgets.items():
-            num.set_label(str(counts.get(key, 0)))
-        self._sync_segment_active()
+    def _update_view_banner(self):
+        """Refresh each tab's count from the last rescan and highlight the active
+        view. An empty tab (e.g. no blockers) is dimmed so it reads as 'nothing
+        here', not a broken button."""
+        for key, (btn, num, _cap) in self._seg_widgets.items():
+            n = self._view_counts.get(key, 0)
+            num.set_label(str(n))
+            btn.set_sensitive(n > 0 or key == "installed")
+        self._sync_view_active()
 
     def _classify(self, game, issues):
-        """Immediate library state for one game. A curated `broken` verdict is
-        final; a shown fix makes it 'fix'; otherwise we lean on the curated
-        `playable`/`fixable` verdict, and fall back to 'unknown' until ProtonDB
-        refines it in _load_tier_async."""
+        """Per-card state, used only for a card's own styling (red 'won't run'
+        accent, blue 'has fixes' accent). A curated `broken` verdict wins; a
+        shown fix makes it 'fix'; else the curated playable/fixable verdict; else
+        'unknown'. This no longer drives any list grouping — views do that."""
         if game and game.playability == "broken":
             return "broken"
         if issues:
@@ -985,7 +977,7 @@ class GamesPage(Gtk.Box):
         # local cache and reused for every card; the network refresh happens in
         # the background (_check_db_update).
         self._report_data = report_stats.load()
-        self._play_state = {}
+        self._view_counts = {"installed": 0, "wontrun": 0, "morefixes": 0}
         if self.db_err:
             self.ready_banner.set_visible(False)
             self.subtitle.set_text(self.db_err)
@@ -1009,48 +1001,61 @@ class GamesPage(Gtk.Box):
         from topology import load_config
         only_verified = load_config().get("only_verified", False)
 
-        rows = []
+        installed_ids = set(installed)
+
+        def sys_issues(game):
+            """Issues that apply to this box, honouring the 'verified only' pref."""
+            matching = [i for i in (game.issues if game else [])
+                        if i.matches_system(gpu, session, cpu)]
+            shown = [i for i in matching if not only_verified or i.fix.verified]
+            return shown, len(matching) - len(shown)
+
+        # Three groups: your installed library (default view), plus opt-in tabs
+        # for won't-run blockers you don't own and other DB games with fixes.
+        rows = []   # (view, appid|key, name, issues, game, hidden, state, aliases, installed, nonsteam)
+
+        # --- installed: your whole library, whatever its state ---
         for appid, name in installed.items():
             if self._is_steam_tool(name):
                 continue
             game = self.db.get(appid)
             disp_name = (game.name if game else name) or f"App {appid}"
-            matching = [i for i in (game.issues if game else [])
-                        if i.matches_system(gpu, session, cpu)]
-            issues = [i for i in matching if not only_verified or i.fix.verified]
-            # Fixes we found but hid because "only verified" is on — so the card
-            # can say so honestly instead of a misleading "no known issues".
-            hidden = len(matching) - len(issues)
-            aliases = game.aliases if game else []
+            issues, hidden = sys_issues(game)
             state = self._classify(game, issues)
-            self._play_state[appid] = state
-            rows.append((appid, disp_name, issues, game, hidden, aliases, state))
+            rows.append(("installed", appid, disp_name, issues, game, hidden, state,
+                         game.aliases if game else [], True, False))
 
-        steam_count = len(rows)
-        with_fixes = sum(1 for r in rows if r[2])
-
-        # Non-Steam blockers (Valorant, League, Fortnite): we can't scan or
-        # install them, so we always surface them — the whole value is warning
-        # a switcher BEFORE they discover their main game won't come across.
-        non_steam = 0
+        # --- not-installed DB games: split into blockers vs other-with-fixes ---
         for key, game in self.db.items():
-            if game.is_steam:
+            if game.is_steam and game.steam_id in installed_ids:
+                continue                              # already in the installed view
+            if not game.is_steam:                     # Valorant / League / Fortnite …
+                rows.append(("wontrun", key, game.name, [], game, 0, "broken",
+                             game.aliases, False, True))
                 continue
-            state = self._classify(game, [])
-            self._play_state[key] = state
-            rows.append((key, game.name, [], game, 0, game.aliases, state))
-            non_steam += 1
+            issues, hidden = sys_issues(game)
+            if game.playability == "broken":          # e.g. Apex you don't own
+                rows.append(("wontrun", game.steam_id, game.name, issues, game, hidden,
+                             "broken", game.aliases, False, False))
+            elif issues:                              # browse the fix DB
+                rows.append(("morefixes", game.steam_id, game.name, issues, game, hidden,
+                             self._classify(game, issues), game.aliases, False, False))
+            # not installed, not broken, no fixes → skip (pure noise)
 
-        # Broken (won't-run) first so the expectation-setter is impossible to
-        # miss, then games with fixes, then alphabetical.
-        state_rank = {"broken": 0, "fix": 1, "play": 2, "unknown": 3}
-        rows.sort(key=lambda r: (state_rank.get(r[6], 3), not r[2], r[1].lower()))
+        for r in rows:
+            self._view_counts[r[0]] += 1
 
-        subtitle = (f"{steam_count} installed games · {with_fixes} with known fixes · "
-                    f"{len(self.db)} games in database")
-        if non_steam:
-            subtitle += f" · {non_steam} non-Steam blockers listed"
-        self.subtitle.set_text(subtitle)
+        # Group by view for a tidy DOM; within installed, owned-but-broken first,
+        # then alphabetical; the opt-in tabs are plain alphabetical.
+        view_rank = {"installed": 0, "wontrun": 1, "morefixes": 2}
+        rows.sort(key=lambda r: (view_rank[r[0]],
+                                 r[6] != "broken" if r[0] == "installed" else False,
+                                 r[2].lower()))
+
+        c = self._view_counts
+        self.subtitle.set_text(
+            f"{c['installed']} installed · {c['wontrun']} won't run · "
+            f"{c['morefixes']} more with fixes · {len(self.db)} in database")
 
         if not rows:
             self.ready_banner.set_visible(False)
@@ -1059,12 +1064,14 @@ class GamesPage(Gtk.Box):
             return
 
         self.ready_banner.set_visible(True)
-        for appid, name, issues, game, hidden, aliases, state in rows:
-            if game is not None and not game.is_steam:
+        for view, appid, name, issues, game, hidden, state, aliases, inst, nonsteam in rows:
+            if nonsteam:
                 card, reveal = self._build_non_steam_card(game, appid)
             else:
-                card, reveal = self._build_game_card(appid, name, issues, game, hidden, state)
+                card, reveal = self._build_game_card(appid, name, issues, game,
+                                                     hidden, state, installed=inst)
             card._appid = appid
+            card._view = view
             self.list_box.append(card)
             # Full-text search key: name + aliases + every visible fix's text, so
             # typing e.g. "multiplayer" surfaces games whose fix mentions it.
@@ -1075,7 +1082,7 @@ class GamesPage(Gtk.Box):
             if game is not None and game.playability_reason:
                 parts.append(game.playability_reason)
             self.game_cards.append((" ".join(parts).lower(), card, reveal))
-        self._update_ready_banner()
+        self._update_view_banner()
         self._apply_search()
 
     def _empty(self, text):
@@ -1095,11 +1102,11 @@ class GamesPage(Gtk.Box):
         non-matches and auto-expands matches so the reason for the match (the fix
         text) is visible; clearing the box shows everything collapsed again."""
         q = getattr(self, "_search_text", "")
-        pf = getattr(self, "_play_filter", None)
+        view = getattr(self, "_view", "installed")
         for key, card, reveal in getattr(self, "game_cards", []):
             text_ok = (q in key) or not q
-            seg_ok = pf is None or self._play_state.get(getattr(card, "_appid", None)) == pf
-            show = text_ok and seg_ok
+            view_ok = getattr(card, "_view", "installed") == view
+            show = text_ok and view_ok
             card.set_visible(show)
             if reveal:
                 reveal(bool(q) and show)
@@ -1117,7 +1124,8 @@ class GamesPage(Gtk.Box):
             return (words[0][0] + words[1][0]).upper()
         return name[:2].upper()
 
-    def _build_game_card(self, appid, name, issues, game, hidden=0, state="unknown"):
+    def _build_game_card(self, appid, name, issues, game, hidden=0, state="unknown",
+                         installed=True):
         broken = state == "broken"
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         card.add_css_class("v2-card")
@@ -1177,19 +1185,21 @@ class GamesPage(Gtk.Box):
 
         # Launch straight from the app, so applying a fix and testing it is a
         # one-click loop instead of alt-tabbing to Steam. Steam honours the
-        # launch options we set, so this really does exercise the fix.
-        play = Gtk.Button(label="▶ Play"); play.add_css_class("btn-play")
-        play.set_valign(Gtk.Align.CENTER)
-        play.set_size_request(84, -1)   # fixed column so Play/pill/tier line up
-        if broken:
-            # No point launching a game that can't run — and for some anti-cheat
-            # titles a failed launch attempt can even flag the account.
-            play.set_sensitive(False)
-            play.set_tooltip_text("This game can't run on Linux (see reason below)")
-        else:
-            play.set_tooltip_text("Launch this game through Steam")
-            play.connect("clicked", self._on_play, appid)
-        title_row.append(play)
+        # launch options we set, so this really does exercise the fix. Only for
+        # installed games — a Play button on a game you don't own is misleading.
+        if installed:
+            play = Gtk.Button(label="▶ Play"); play.add_css_class("btn-play")
+            play.set_valign(Gtk.Align.CENTER)
+            play.set_size_request(84, -1)   # fixed column so Play/pill/tier line up
+            if broken:
+                # No point launching a game that can't run — and for some anti-cheat
+                # titles a failed launch attempt can even flag the account.
+                play.set_sensitive(False)
+                play.set_tooltip_text("This game can't run on Linux (see reason below)")
+            else:
+                play.set_tooltip_text("Launch this game through Steam")
+                play.connect("clicked", self._on_play, appid)
+            title_row.append(play)
 
         # Fix-status pill — the actionable signal, so it carries the colour.
         pill = Gtk.Label(); pill.set_valign(Gtk.Align.CENTER)
@@ -1256,7 +1266,10 @@ class GamesPage(Gtk.Box):
             card.append(title_row)
             card.append(self._suggest_row(appid, name))
 
-        self._load_tier_async(appid, tier_lbl)
+        # ProtonDB tier only for installed games — fetching it for every
+        # non-installed DB game would be ~100 network calls on a browse.
+        if installed:
+            self._load_tier_async(appid, tier_lbl)
         return card, reveal_fn
 
     # Store labels for non-Steam titles — shown where the ProtonDB tier sits.
@@ -1950,15 +1963,10 @@ class GamesPage(Gtk.Box):
         except Exception:
             pass
 
-    # ProtonDB tier -> traffic-light bucket, used only to refine games with NO
-    # curated verdict. Deliberately NOT trusted for the red bucket's headline
-    # cases: ProtonDB's "borked" mixes "temporarily broken" with "permanently
-    # blocked", and an anti-cheat title can still show stale Gold reports — so the
-    # authoritative won't-run list stays curated (areweanticheatyet-sourced).
-    TIER_STATE = {"platinum": "play", "gold": "play", "native": "play",
-                  "silver": "fix", "bronze": "fix", "borked": "broken"}
-
     def _load_tier_async(self, appid, label):
+        """Fill in the per-card ProtonDB tier badge (GOLD/PLATINUM/…) in the
+        background. Purely informational now — the card badge is the runnability
+        signal a player reads; it no longer drives any list grouping."""
         def work():
             tier, total = steam_scanner.protondb_tier(appid)
             if not tier:
@@ -1970,7 +1978,6 @@ class GamesPage(Gtk.Box):
                       "borked": ("#f7768e", "rgba(247,118,142,0.14)"),
                       "pending": ("#565f89", "rgba(86,95,137,0.14)")}
             fg, bg = colors.get(tier, ("#565f89", "rgba(86,95,137,0.14)"))
-            refined = self.TIER_STATE.get(tier)
 
             def apply():
                 label.set_label(tier.upper())
@@ -1980,12 +1987,6 @@ class GamesPage(Gtk.Box):
                 label.get_style_context().add_provider(
                     css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
                 label.add_css_class(f"tier-{appid}")
-                # Fill in the traffic light for games with no curated verdict. A
-                # curated state (play/fix/broken) is never overridden by ProtonDB.
-                if refined and self._play_state.get(appid) == "unknown":
-                    self._play_state[appid] = refined
-                    self._update_ready_banner()
-                    self._apply_search()
                 return False
             GLib.idle_add(apply)
 
