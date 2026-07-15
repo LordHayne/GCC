@@ -29,6 +29,23 @@ import steam_scanner
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+# Global text-size multiplier. The v2 stylesheet is dense (lots of 9–11px
+# labels) which is hard to read on high-DPI/large screens; scaling every
+# font-size together lifts legibility while preserving the type hierarchy.
+# One knob — easy to expose as a Settings slider later.
+UI_FONT_SCALE = 1.2
+
+
+def scale_font_sizes(css, factor=UI_FONT_SCALE):
+    """Multiply every `font-size: Npx` in a stylesheet by `factor` (rounded).
+    Layout values (padding, widths) are left alone; only type scales."""
+    if factor == 1.0:
+        return css
+    return re.sub(r"font-size:\s*(\d+)px",
+                  lambda m: f"font-size: {max(1, round(int(m.group(1)) * factor))}px",
+                  css)
+
+
 def load_css(provider, css):
     """Feed CSS into a Gtk.CssProvider across GTK versions. load_from_string()
     only exists on GTK 4.12+; older GTK (e.g. Ubuntu 22.04's 4.6, Debian 12's
@@ -1230,7 +1247,10 @@ class CommandCenter(Adw.ApplicationWindow):
             border-radius: 20px; padding: 3px 12px; font-size: 11px; font-weight: 700;
         }
         .ok-pill { color: #9ece6a; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
-        .v2-card-fix { border-color: rgba(122,162,247,0.28); background: #181a26; }
+        .v2-card-fix {
+            border-color: rgba(122,162,247,0.55); background: #191b29;
+            box-shadow: inset 3px 0 0 0 #7aa2f7, 0 4px 20px rgba(122,162,247,0.12);
+        }
         .issue-row {
             background: #12131b; border-radius: 10px; padding: 11px 14px;
             margin-top: 2px; border: 1px solid rgba(255,255,255,0.04);
@@ -1455,12 +1475,15 @@ class CommandCenter(Adw.ApplicationWindow):
             color: #7aa2f7;
         }
         """
-        provider = Gtk.CssProvider()
-        load_css(provider, css)
+        # Keep the unscaled stylesheet + a live provider so the Text-size
+        # setting can re-scale the whole UI instantly (see _apply_font_scale).
+        self._base_css = css
+        self._css_provider = Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_display(
-            self.get_display(), provider,
+            self.get_display(), self._css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+        self._apply_font_scale(float(load_config().get("ui_font_scale", UI_FONT_SCALE)))
 
         self.build_ui()
         self.refresh()
@@ -2198,6 +2221,19 @@ class CommandCenter(Adw.ApplicationWindow):
         self._settings_row(card, "Refresh rate",
                            "How often live stats update. Slower = less CPU use.", combo)
 
+        # --- APPEARANCE ---
+        card = self._settings_group(box, "APPEARANCE")
+        scales = [("Compact", 1.0), ("Default", 1.2),
+                  ("Large", 1.4), ("Extra Large", 1.6)]
+        cur_scale = float(cfg.get("ui_font_scale", UI_FONT_SCALE))
+        sidx = min(range(len(scales)), key=lambda i: abs(scales[i][1] - cur_scale))
+        scombo = Gtk.DropDown.new_from_strings([n for n, _ in scales])
+        scombo.set_selected(sidx); scombo.set_valign(Gtk.Align.CENTER)
+        scombo.connect("notify::selected", lambda d, _p:
+                       self._on_font_scale(scales[d.get_selected()][1]))
+        self._settings_row(card, "Text size",
+                           "Scales all UI text. Applies instantly.", scombo)
+
         # --- GAME FIXES ---
         card = self._settings_group(box, "GAME FIXES")
         sw = Gtk.Switch(); sw.set_valign(Gtk.Align.CENTER)
@@ -2271,6 +2307,16 @@ class CommandCenter(Adw.ApplicationWindow):
         control.set_valign(Gtk.Align.CENTER)
         row.append(control)
         card.append(row)
+
+    def _apply_font_scale(self, scale):
+        """Re-load the stylesheet at `scale`. Reuses the same provider that's
+        already on the display, so GTK restyles the whole UI live."""
+        self._font_scale = scale
+        load_css(self._css_provider, scale_font_sizes(self._base_css, scale))
+
+    def _on_font_scale(self, scale):
+        save_config({"ui_font_scale": scale})
+        self._apply_font_scale(scale)
 
     def _on_interval_changed(self, seconds):
         self._monitor_interval = seconds
@@ -3014,11 +3060,20 @@ class App(Adw.Application):
         super().__init__(application_id="com.gaming.commandcenter")
 
     def do_activate(self):
-        win = CommandCenter(self)
-        win.present()
-        # First launch without system integration → offer the one-click setup.
-        if needs_setup():
-            SetupDialog(win).present()
+        try:
+            win = CommandCenter(self)
+            win.present()
+            # First launch without system integration → offer one-click setup.
+            if needs_setup():
+                SetupDialog(win).present()
+        except Exception:
+            # If building the UI throws, print the traceback and quit so the
+            # process releases the application-id. Otherwise GLib swallows the
+            # exception, the main loop keeps running windowless, and the app
+            # looks "stuck" — every later launch just forwards to this zombie.
+            import traceback
+            traceback.print_exc()
+            self.quit()
 
 
 if __name__ == "__main__":

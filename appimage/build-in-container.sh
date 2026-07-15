@@ -123,6 +123,16 @@ cat > "$APPDIR/AppRun" <<APPRUN
 HERE="\$(dirname "\$(readlink -f "\$0")")"
 export APPDIR="\$HERE"
 for hook in "\$HERE"/apprun-hooks/*.sh; do [ -r "\$hook" ] && . "\$hook"; done
+# Render in software. The bundled Mesa can't drive the host GPU — on NVIDIA it
+# probes the card's PCI id, finds no Mesa DRI driver (NVIDIA is proprietary) and
+# prints "failed to create dri2 screen" before GTK falls back to software
+# anyway. Forcing Mesa's software rasteriser (llvmpipe) skips that HW probe, and
+# GSK_RENDERER=cairo picks GTK's software renderer. This lightweight monitoring
+# UI needs no acceleration; result is identical rendering on any GPU/driver and
+# clean output. All overridable by exporting them before launch.
+export LIBGL_ALWAYS_SOFTWARE="\${LIBGL_ALWAYS_SOFTWARE:-1}"
+export GALLIUM_DRIVER="\${GALLIUM_DRIVER:-llvmpipe}"
+export GSK_RENDERER="\${GSK_RENDERER:-cairo}"
 export PATH="\$HERE/usr/bin:\$PATH"
 export LD_LIBRARY_PATH="\$HERE/usr/lib:\$HERE/usr/lib/$ARCHDIR:\${LD_LIBRARY_PATH:-}"
 export GI_TYPELIB_PATH="\$HERE/usr/lib/girepository-1.0:\${GI_TYPELIB_PATH:-}"
