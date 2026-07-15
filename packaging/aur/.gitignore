@@ -1,0 +1,5 @@
+# makepkg build outputs — never commit these
+/src/
+/pkg/
+*.pkg.tar.*
+*.tar.gz
