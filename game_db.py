@@ -50,6 +50,7 @@ ALLOWED_FIX_TYPES = {"info", "launch_option", "file", "tool_action"}
 ALLOWED_TOOL_ACTIONS = {"game_mode"}
 
 ALLOWED_GPU = {"nvidia", "amd", "intel"}
+ALLOWED_CPU = {"amd", "intel"}
 ALLOWED_SESSION = {"wayland", "x11"}
 
 
@@ -75,12 +76,15 @@ class Issue:
         self.symptom = symptom
         self.cause = cause
         self.fix = fix
-        self.when = when or {}   # {"gpu": "nvidia", "session": "wayland"}
+        self.when = when or {}   # {"gpu": "nvidia", "cpu": "amd", "session": "wayland"}
 
-    def matches_system(self, gpu=None, session=None):
-        """True if this issue is relevant to the current setup. Issues without
-        a `when` block apply to everyone."""
+    def matches_system(self, gpu=None, session=None, cpu=None):
+        """True if this issue is relevant to the current setup. Each `when` key
+        that is set must match; an absent key matches everyone. So a fix only
+        for NVIDIA on Wayland stays hidden on an AMD-GPU or X11 box."""
         if "gpu" in self.when and gpu and self.when["gpu"] != gpu:
+            return False
+        if "cpu" in self.when and cpu and self.when["cpu"] != cpu:
             return False
         if "session" in self.when and session and self.when["session"] != session:
             return False
@@ -146,9 +150,12 @@ def _parse_when(raw):
         return {}
     when = {}
     gpu = str(raw.get("gpu", "")).lower().strip()
+    cpu = str(raw.get("cpu", "")).lower().strip()
     ses = str(raw.get("session", "")).lower().strip()
     if gpu in ALLOWED_GPU:
         when["gpu"] = gpu
+    if cpu in ALLOWED_CPU:
+        when["cpu"] = cpu
     if ses in ALLOWED_SESSION:
         when["session"] = ses
     return when

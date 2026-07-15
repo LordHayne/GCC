@@ -828,6 +828,19 @@ class GamesPage(Gtk.Box):
                ("x11" if os.environ.get("DISPLAY") else None)
 
     @staticmethod
+    def _cpu_vendor():
+        try:
+            with open("/proc/cpuinfo") as f:
+                info = f.read()
+            if "AuthenticAMD" in info:
+                return "amd"
+            if "GenuineIntel" in info:
+                return "intel"
+        except OSError:
+            pass
+        return None
+
+    @staticmethod
     def _is_steam_tool(name):
         if not name:
             return False
@@ -862,7 +875,7 @@ class GamesPage(Gtk.Box):
         # (Proton, runtimes, redistributables) is filtered out.
         installed = steam_scanner.installed_appids(root)
         self.steam_root = root  # for local cover art in _build_game_card
-        gpu, session = self._gpu_vendor(), self._session()
+        gpu, session, cpu = self._gpu_vendor(), self._session(), self._cpu_vendor()
         from topology import load_config
         only_verified = load_config().get("only_verified", False)
 
@@ -873,7 +886,7 @@ class GamesPage(Gtk.Box):
             game = self.db.get(appid)
             disp_name = (game.name if game else name) or f"App {appid}"
             issues = [i for i in (game.issues if game else [])
-                      if i.matches_system(gpu, session)
+                      if i.matches_system(gpu, session, cpu)
                       and (not only_verified or i.fix.verified)]
             rows.append((appid, disp_name, issues, game is not None))
 
@@ -1026,18 +1039,45 @@ class GamesPage(Gtk.Box):
         if fix.is_applicable:
             act = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             act.set_valign(Gtk.Align.CENTER)
-            btn = Gtk.Button(); btn.add_css_class("btn-apply-sm")
-            btn.set_label({"launch_option": "APPLY FIX", "file": "CREATE FILE",
-                           "tool_action": "APPLY FIX"}.get(fix.type, "APPLY"))
-            btn.connect("clicked", self.on_apply_fix, appid, issue)
-            act.append(btn)
-            result = Gtk.Label(label=""); result.add_css_class("issue-result")
-            result.set_xalign(1); result.set_wrap(True)
-            act.append(result)
-            btn._result = result
+            if self._fix_applied(appid, fix):
+                # Already in place — show it, don't offer a pointless Apply.
+                done = Gtk.Label()
+                done.set_markup("<span color='#9ece6a' weight='bold'>✓ Applied</span>")
+                done.add_css_class("issue-result"); done.set_xalign(1)
+                act.append(done)
+            else:
+                btn = Gtk.Button(); btn.add_css_class("btn-apply-sm")
+                btn.set_label({"launch_option": "APPLY FIX", "file": "CREATE FILE",
+                               "tool_action": "APPLY FIX"}.get(fix.type, "APPLY"))
+                btn.connect("clicked", self.on_apply_fix, appid, issue)
+                act.append(btn)
+                result = Gtk.Label(label=""); result.add_css_class("issue-result")
+                result.set_xalign(1); result.set_wrap(True)
+                act.append(result)
+                btn._result = result
             row.append(act)
 
         return row
+
+    @staticmethod
+    def _fix_applied(appid, fix):
+        """True if the fix already looks applied, so the card shows '✓ Applied'
+        instead of a button the user would click for nothing. Uses a substring
+        match, since a launch option often sits inside a larger string (e.g. the
+        fix's env var alongside a gamescope wrapper)."""
+        if fix.type == "launch_option":
+            token = fix.value.replace("%command%", "").strip()
+            return bool(token) and token in (steam_scanner.get_launch_options(appid) or "")
+        if fix.type == "file":
+            want = fix.content.strip()
+            if not want:
+                return False
+            try:
+                with open(os.path.expanduser(fix.path)) as f:
+                    return want in f.read()
+            except OSError:
+                return False
+        return False
 
     def on_apply_fix(self, btn, appid, issue):
         fix = issue.fix
@@ -1783,6 +1823,10 @@ class CommandCenter(Adw.ApplicationWindow):
         hero.append(mode_row)
         self.hero_sub = Gtk.Label(label="all cores · schedutil"); self.hero_sub.set_xalign(0)
         self.hero_sub.add_css_class("hero-sub")
+        # Ellipsize so a longer status (e.g. "balance performance") can't widen
+        # the sidebar and make it jump when the mode changes.
+        self.hero_sub.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+        self.hero_sub.set_hexpand(True)
         hero.append(self.hero_sub)
         sidebar.append(hero)
 
@@ -1791,6 +1835,7 @@ class CommandCenter(Adw.ApplicationWindow):
         foot.set_margin_start(14); foot.set_margin_end(14); foot.set_margin_bottom(12)
         self.status_footer_lbl = Gtk.Label(label="")
         self.status_footer_lbl.set_xalign(0); self.status_footer_lbl.set_hexpand(True)
+        self.status_footer_lbl.set_ellipsize(3)  # don't let a long cpu line widen the sidebar
         self.status_footer_lbl.add_css_class("status-footer")
         foot.append(self.status_footer_lbl)
         helper_ok = Gtk.Label()
@@ -2843,7 +2888,9 @@ class CommandCenter(Adw.ApplicationWindow):
         if "epp" in driver or driver == "intel_pstate":
             epp = r("/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference")
             if epp:
-                return epp.replace("_", " ")
+                friendly = {"performance": "performance", "balance_performance": "balanced",
+                            "balance_power": "power-saving", "power": "power-saving"}
+                return friendly.get(epp, epp.replace("_", " "))
         return r("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") or "?"
 
     @staticmethod
