@@ -152,6 +152,43 @@ def find_steam_root():
     return None
 
 
+def library_art(root, appid):
+    """Local Steam cover/banner art for a game, or {} if nothing is cached.
+
+    Reads Steam's own appcache — fully offline, no network. Steam has used a
+    few layouts over time, so we cover all of them for each asset name:
+      * new:    librarycache/<appid>/<hash>/library_header.jpg
+      * older:  librarycache/<appid>/library_header.jpg
+      * legacy: librarycache/<appid>_header.jpg
+    Asset names are tried in preference order (plain before localized), so we
+    pick the English `library_header.jpg` over `library_header_german.jpg`.
+    Keys returned when present: 'header' (460x215 banner), 'portrait' (~600x900).
+    """
+    if not root:
+        return {}
+    cache = os.path.join(root, "appcache", "librarycache")
+    appid = str(appid)
+
+    def _find(names):
+        for n in names:
+            for pat in (os.path.join(cache, appid, n),        # older per-appid
+                        os.path.join(cache, appid, "*", n),   # new hash subdir
+                        os.path.join(cache, f"{appid}_{n}")):  # legacy flat
+                hits = sorted(glob.glob(pat))
+                if hits:
+                    return hits[0]
+        return None
+
+    out = {}
+    header = _find(["library_header.jpg", "header.jpg", "library_header_german.jpg"])
+    if header:
+        out["header"] = header
+    portrait = _find(["library_600x900.jpg", "library_capsule.jpg"])
+    if portrait:
+        out["portrait"] = portrait
+    return out
+
+
 def is_steam_running():
     try:
         r = subprocess.run(["pgrep", "-x", "steam"], capture_output=True, timeout=3)
