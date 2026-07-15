@@ -53,6 +53,13 @@ ALLOWED_GPU = {"nvidia", "amd", "intel"}
 ALLOWED_CPU = {"amd", "intel"}
 ALLOWED_SESSION = {"wayland", "x11"}
 
+# Curated "can I even play this?" verdict, surfaced as the library traffic light.
+# `broken` is the expectation-manager: a game that will NOT run on Linux at all
+# (almost always anti-cheat disabled server-side) — no launch option or file can
+# fix it, so we say so up front instead of after two hours of fiddling. Any other
+# value is dropped, exactly like the fix-type whitelist.
+ALLOWED_PLAYABILITY = {"playable", "fixable", "broken"}
+
 
 class Fix:
     def __init__(self, ftype, value="", path="", content="", action="", verified=False,
@@ -96,11 +103,17 @@ class Issue:
 
 
 class Game:
-    def __init__(self, name, steam_id, issues, aliases=None):
+    def __init__(self, name, steam_id, issues, aliases=None,
+                 playability=None, playability_reason="", playability_source=""):
         self.name = name
         self.steam_id = steam_id
         self.issues = issues
         self.aliases = aliases or []
+        # None | "playable" | "fixable" | "broken" — the library traffic light.
+        # None means "no curated verdict", so the UI falls back to ProtonDB.
+        self.playability = playability
+        self.playability_reason = playability_reason    # why, in one line (esp. broken)
+        self.playability_source = playability_source    # where the verdict came from
 
 
 def _clean_str(v):
@@ -281,7 +294,13 @@ def load_games(path=None):
         name = str(raw.get("name", "")).strip() or f"App {steam_id}"
         issues = [i for i in (_parse_issue(r) for r in raw.get("issues", []) or []) if i]
         aliases = [str(a).lower() for a in raw.get("aliases", []) or []]
-        games[steam_id] = Game(name, steam_id, issues, aliases)
+        play = str(raw.get("playability", "")).lower().strip()
+        play = play if play in ALLOWED_PLAYABILITY else None
+        preason = _clean_str(raw.get("playability_reason", ""))
+        psource = _clean_str(raw.get("playability_source", ""))
+        games[steam_id] = Game(name, steam_id, issues, aliases,
+                               playability=play, playability_reason=preason,
+                               playability_source=psource)
 
     return games, ""
 
