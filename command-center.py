@@ -4395,5 +4395,11 @@ class App(Adw.Application):
 
 
 if __name__ == "__main__":
+    # Force the Wayland app_id to match the .desktop basename. GTK derives the
+    # xdg_toplevel app_id from g_get_prgname() (not the application_id), so when
+    # launched as `python3 command-center.py` — e.g. double-clicking the AppImage
+    # — the app_id would be "command-center.py" and the compositor can't match it
+    # to com.gaming.commandcenter.desktop, leaving the taskbar entry iconless.
+    GLib.set_prgname("com.gaming.commandcenter")
     app = App()
     app.run(None)
