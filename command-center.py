@@ -2492,10 +2492,14 @@ class CommandCenter(Adw.ApplicationWindow):
         card.append(self.games_info)
         self.bench_info = self._info_card("🏆", "CCD Benchmark", "…", "benchmark")
         card.append(self.bench_info)
-        # Quiet recovery action (kept from before; header toggle handles on/off)
+        # Recovery escape hatch, not a normal-mode switch: the header Game Mode
+        # toggle already handles on/off. Hidden by default and only shown by
+        # _render when the CPU layout is unknown (cores parked but unreadable) —
+        # the one state where the toggle refuses and this is the only way back.
         self.restore_btn = Gtk.Button(label="Restore all cores")
         self.restore_btn.add_css_class("btn-quiet")
         self.restore_btn.set_margin_top(2)
+        self.restore_btn.set_visible(False)
         self.restore_btn.connect("clicked", self.on_restore_cores)
         card.append(self.restore_btn)
         self.gm_status_lbl = Gtk.Label(label="")
@@ -3398,6 +3402,13 @@ class CommandCenter(Adw.ApplicationWindow):
         if hasattr(self, "gm_btn"):
             self.gm_btn.set_sensitive(gm_ok)
             self.gm_btn.set_tooltip_text(tip)
+
+        # Show the "Restore all cores" recovery button only when it's actually
+        # needed — the layout is unknown (cores parked but the topology can't be
+        # read), the single state where the Game Mode toggle can't help. In
+        # normal use it stays hidden, since Game Mode off already restores.
+        if hasattr(self, "restore_btn"):
+            self.restore_btn.set_visible(not d["complete"])
 
         # Topology meta line + CCD thread grids
         if hasattr(self, "topo_meta"):
