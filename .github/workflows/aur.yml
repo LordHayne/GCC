@@ -1,0 +1,95 @@
+name: Publish to AUR
+
+# Pushes the AUR package on the SAME tag that builds the AppImage (appimage.yml),
+# so a release stays a single ritual: bump APP_VERSION, `git tag vX.Y.Z`, push.
+# This job then bumps pkgver, recomputes the checksums, regenerates .SRCINFO and
+# pushes to the AUR — no manual AUR steps per release.
+#
+# One-time setup before this can work:
+#   1. Create an account on https://aur.archlinux.org and add your PUBLIC ssh key.
+#   2. Add the matching PRIVATE key as the repo secret AUR_SSH_PRIVATE_KEY
+#      (Settings → Secrets and variables → Actions → New repository secret).
+# The package name is reserved by your first successful push.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, without the leading v (e.g. 0.1.6)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install packaging tooling
+        run: |
+          pacman -Syu --noconfirm --needed git openssh pacman-contrib base-devel sudo
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version from tag or manual input
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            v="${{ github.event.inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Publishing gaming-command-center $v"
+
+      # makepkg/updpkgsums refuse to run as root; the container is root, so do the
+      # PKGBUILD work as an unprivileged build user.
+      - name: Create build user
+        run: |
+          useradd -m builder
+          chown -R builder packaging/aur
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Bump version, recompute checksums, regenerate .SRCINFO
+        working-directory: packaging/aur
+        run: |
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.ver.outputs.version }}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sudo -u builder updpkgsums                         # downloads the tag tarball, rewrites sha256sums
+          sudo -u builder makepkg --printsrcinfo > .SRCINFO
+          echo "----- PKGBUILD -----"; cat PKGBUILD
+          echo "----- .SRCINFO -----"; cat .SRCINFO
+
+      # Proves the recipe parses and the source fetches before anything is pushed.
+      - name: Validate PKGBUILD (fetch + extract, no build)
+        working-directory: packaging/aur
+        run: sudo -u builder makepkg --noconfirm --nodeps --nobuild
+
+      - name: Configure SSH for the AUR
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          cat >> ~/.ssh/config <<'EOF'
+          Host aur.archlinux.org
+            User aur
+            IdentityFile ~/.ssh/aur
+            StrictHostKeyChecking accept-new
+          EOF
+
+      - name: Push to the AUR
+        run: |
+          git config --global user.name "GCC Release Bot"
+          git config --global user.email "thomas.sigmund1989@gmail.com"
+          git clone ssh://aur@aur.archlinux.org/gaming-command-center.git aur-repo
+          cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO aur-repo/
+          cd aur-repo
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "Nothing changed — AUR already at this version."
+          else
+            git commit -m "gaming-command-center ${{ steps.ver.outputs.version }}-1"
+            git push
+          fi
