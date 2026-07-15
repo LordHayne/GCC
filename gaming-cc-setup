@@ -22,9 +22,15 @@ fail() { echo "ERR: $*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail "must run as root (via sudo or pkexec)"
 
 SRC="${1:-}"
-[ -n "$SRC" ]                    || fail "usage: gaming-cc-setup <source-dir>"
+[ -n "$SRC" ]                    || fail "usage: gaming-cc-setup <source-dir> [exec-command]"
 [ -d "$SRC" ]                    || fail "source directory not found: $SRC"
 [ -f "$SRC/command-center.py" ]  || fail "not a Gaming Command Center source dir: $SRC"
+
+# Optional 2nd arg: the desktop-launcher Exec line. Defaults to running the
+# script directly (source/install.sh case); the app passes the AppImage path
+# here when installing from an AppImage, so the launcher points at the .AppImage
+# instead of a command-center.py that lives in a temporary mount.
+EXEC_CMD="${2:-python3 $SRC/command-center.py}"
 
 # 1. Helper scripts → /usr/local/bin
 #    Two on purpose: runtime tweaks (no password) vs persistent /etc changes
@@ -54,7 +60,7 @@ cat > /usr/share/applications/com.gaming.commandcenter.desktop <<DESKTOP
 [Desktop Entry]
 Name=Gaming Command Center
 Comment=Linux gaming optimization — CPU CCD parking, GPU overclocking, system setup wizard
-Exec=python3 $SRC/command-center.py
+Exec=$EXEC_CMD
 Icon=gaming-command-center
 Terminal=false
 Type=Application

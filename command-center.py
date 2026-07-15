@@ -29,6 +29,17 @@ import steam_scanner
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+def load_css(provider, css):
+    """Feed CSS into a Gtk.CssProvider across GTK versions. load_from_string()
+    only exists on GTK 4.12+; older GTK (e.g. Ubuntu 22.04's 4.6, Debian 12's
+    4.8) needs load_from_data(bytes). Keeps the app working on the AppImage's
+    bundled GTK and on any distro shipping GTK < 4.12."""
+    try:
+        provider.load_from_string(css)
+    except (AttributeError, TypeError):
+        provider.load_from_data(css.encode())
+
+
 # ── System integration (first-run setup) ────────────────────────────────────
 # The app runs from source, but Game Mode, the /etc fixes and the app-menu
 # launcher need a few root-owned files in place. gaming-cc-setup installs them;
@@ -60,19 +71,50 @@ def needs_setup():
 def run_privileged_setup():
     """Run gaming-cc-setup as root via pkexec. Returns (ok, reason). Mirrors the
     helper convention: success prints SETUP_DONE, failures print 'ERR: ...'."""
-    setup = os.path.join(BASE_DIR, "gaming-cc-setup")
-    if not os.path.exists(setup):
+    import tempfile
+    if not os.path.exists(os.path.join(BASE_DIR, "gaming-cc-setup")):
         return False, "gaming-cc-setup not found next to the app"
-    # Invoke through bash by absolute path so a lost +x bit (e.g. a zip download)
-    # doesn't break it; pkexec needs an absolute program path anyway.
+
     bash = shutil.which("bash") or "/bin/bash"
+    appimage = os.environ.get("APPIMAGE")  # set by the AppImage runtime
+    src = BASE_DIR
+    exec_override = None
+    staged = None
+
+    if appimage:
+        # Inside an AppImage, BASE_DIR lives in a FUSE mount that root (pkexec)
+        # can't read, so copy the files the setup needs into a world-readable
+        # temp dir. Point the launcher at the .AppImage itself, since the
+        # command-center.py in the mount vanishes when the app closes.
+        try:
+            staged = tempfile.mkdtemp(prefix="gcc-setup-")
+            os.chmod(staged, 0o755)
+            for name in ("gaming-cc-setup", "gaming-ccd-helper", "gaming-cc-etc-helper",
+                         "com.gaming.commandcenter.policy", "GCC_logo.png",
+                         "command-center.py"):
+                s = os.path.join(BASE_DIR, name)
+                if os.path.exists(s):
+                    d = os.path.join(staged, name)
+                    shutil.copy(s, d)
+                    os.chmod(d, 0o755 if name.startswith("gaming-") else 0o644)
+            src = staged
+            exec_override = appimage
+        except OSError as e:
+            return False, f"Could not stage setup files: {e}"
+
     try:
-        r = subprocess.run(["pkexec", bash, setup, BASE_DIR],
-                           capture_output=True, text=True, timeout=120)
+        cmd = ["pkexec", bash, os.path.join(src, "gaming-cc-setup"), src]
+        if exec_override:
+            cmd.append(exec_override)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         return False, "Setup timed out"
     except OSError as e:
         return False, f"Could not run setup: {e}"
+    finally:
+        if staged:
+            shutil.rmtree(staged, ignore_errors=True)
+
     if "SETUP_DONE" in (r.stdout or ""):
         return True, ""
     if r.returncode == 126:
@@ -696,6 +738,7 @@ class GamesPage(Gtk.Box):
         # the user doesn't have installed is just noise. Steam's own tooling
         # (Proton, runtimes, redistributables) is filtered out.
         installed = steam_scanner.installed_appids(root)
+        self.steam_root = root  # for local cover art in _build_game_card
         gpu, session = self._gpu_vendor(), self._session()
         from topology import load_config
         only_verified = load_config().get("only_verified", False)
@@ -751,31 +794,61 @@ class GamesPage(Gtk.Box):
     def _build_game_card(self, appid, name, issues, in_db):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         card.add_css_class("v2-card")
+        if issues:
+            card.add_css_class("v2-card-fix")
 
-        # Title row: icon tile + name/meta + tier badge
-        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        fg, bg = self.TILE_PALETTE[appid % len(self.TILE_PALETTE)]
-        tile = Gtk.Label(label=self._initials(name))
-        tile.add_css_class("game-tile")
-        tile.set_size_request(44, 44)
-        css = Gtk.CssProvider()
-        css.load_from_string(f".gt-{appid} {{ background: {bg}; color: {fg}; }}")
-        tile.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        tile.add_css_class(f"gt-{appid}")
-        title_row.append(tile)
+        # Title row: banner art (or initials fallback) + name/meta + status + tier
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=13)
 
-        namecol = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        art = steam_scanner.library_art(getattr(self, "steam_root", None), appid)
+        if art.get("header"):
+            # Steam's own header banner, clipped to a rounded box via CSS.
+            banner = Gtk.Box()
+            banner.set_size_request(180, 84)
+            banner.set_valign(Gtk.Align.CENTER)
+            banner.add_css_class("game-banner")
+            css = Gtk.CssProvider()
+            load_css(css, f'.gb-{appid} {{ background-image: url("file://{art["header"]}"); }}')
+            banner.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            banner.add_css_class(f"gb-{appid}")
+            title_row.append(banner)
+        else:
+            fg, bg = self.TILE_PALETTE[appid % len(self.TILE_PALETTE)]
+            tile = Gtk.Label(label=self._initials(name))
+            tile.add_css_class("game-tile")
+            tile.set_size_request(44, 44)
+            tile.set_valign(Gtk.Align.CENTER)
+            css = Gtk.CssProvider()
+            load_css(css, f".gt-{appid} {{ background: {bg}; color: {fg}; }}")
+            tile.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            tile.add_css_class(f"gt-{appid}")
+            title_row.append(tile)
+
+        namecol = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         namecol.set_valign(Gtk.Align.CENTER)
         nm = Gtk.Label(label=name); nm.add_css_class("game-title"); nm.set_xalign(0)
+        nm.set_wrap(False); nm.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
         namecol.append(nm)
-        meta = Gtk.Label(label=(f"appid {appid}  ·  "
-                                f"{len(issues)} fix{'es' if len(issues) != 1 else ''} available"
-                                if issues else f"appid {appid}  ·  no known issues"))
+        meta = Gtk.Label(
+            label=(f"{len(issues)} fix{'es' if len(issues) != 1 else ''} available"
+                   if issues else "no known issues"))
         meta.add_css_class("game-meta"); meta.set_xalign(0)
+        meta.set_tooltip_text(f"appid {appid}")  # kept for contributors, out of the way
         namecol.append(meta)
         title_row.append(namecol)
 
         spacer = Gtk.Box(); spacer.set_hexpand(True); title_row.append(spacer)
+
+        # Fix-status pill — the actionable signal, so it carries the colour.
+        pill = Gtk.Label(); pill.set_valign(Gtk.Align.CENTER)
+        if issues:
+            pill.set_label(f"● {len(issues)} fix{'es' if len(issues) != 1 else ''}")
+            pill.add_css_class("fix-pill")
+        else:
+            pill.set_label("✓ all good")
+            pill.add_css_class("ok-pill")
+        title_row.append(pill)
+
         tier_lbl = Gtk.Label(label=""); tier_lbl.add_css_class("game-tier")
         tier_lbl.set_valign(Gtk.Align.CENTER)
         title_row.append(tier_lbl)
@@ -916,7 +989,7 @@ class GamesPage(Gtk.Box):
                 label.set_label(tier.upper())
                 label.set_tooltip_text(f"ProtonDB: {tier.capitalize()} · {total} reports")
                 css = Gtk.CssProvider()
-                css.load_from_string(f".tier-{appid} {{ background: {bg}; color: {fg}; }}")
+                load_css(css, f".tier-{appid} {{ background: {bg}; color: {fg}; }}")
                 label.get_style_context().add_provider(
                     css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
                 label.add_css_class(f"tier-{appid}")
@@ -1147,6 +1220,17 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         .game-tier { font-size: 9px; font-weight: 700; letter-spacing: 1px;
             padding: 3px 9px; border-radius: 5px; }
+        .game-banner {
+            border-radius: 9px; background-size: cover; background-position: center;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .fix-pill {
+            background: rgba(122,162,247,0.14); color: #7aa2f7;
+            border: 1px solid rgba(122,162,247,0.28);
+            border-radius: 20px; padding: 3px 12px; font-size: 11px; font-weight: 700;
+        }
+        .ok-pill { color: #9ece6a; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
+        .v2-card-fix { border-color: rgba(122,162,247,0.28); background: #181a26; }
         .issue-row {
             background: #12131b; border-radius: 10px; padding: 11px 14px;
             margin-top: 2px; border: 1px solid rgba(255,255,255,0.04);
@@ -1372,10 +1456,7 @@ class CommandCenter(Adw.ApplicationWindow):
         }
         """
         provider = Gtk.CssProvider()
-        try:
-            provider.load_from_string(css)
-        except (AttributeError, TypeError):
-            provider.load_from_data(css.encode())
+        load_css(provider, css)
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
@@ -1455,8 +1536,9 @@ class CommandCenter(Adw.ApplicationWindow):
         content_box.append(self.view_stack)
         main_box.append(content_box)
 
-        # Default to Dashboard (also sets header title + active nav icon)
-        self.switch_page("dashboard")
+        # Default to Dashboard (also sets header title + active nav icon).
+        # GCC_START_PAGE lets tooling open straight to a page for screenshots.
+        self.switch_page(os.environ.get("GCC_START_PAGE", "dashboard"))
 
     # Line-icon paths from the v2 design (16x16 viewBox, stroke-based).
     NAV_ICONS = {
