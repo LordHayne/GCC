@@ -2988,7 +2988,7 @@ class CommandCenter(Adw.ApplicationWindow):
     # ============================================================
     # Settings Page
     # ============================================================
-    APP_VERSION = "0.1.2"
+    APP_VERSION = "0.1.3"
     GITHUB_URL = "https://github.com/LordHayne/GCC"
 
     def _build_settings_page(self):
